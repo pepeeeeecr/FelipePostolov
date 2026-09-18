@@ -113,18 +113,35 @@ async function getRatingsForTeetime(teetimeId) {
   return data || [];
 }
 
-async function buildTeetimeResponse(row) {
+// viewerId/blockedIds are only meaningful when the viewer is this round's
+// host: that's the one context where seeing who's pending is useful, and the
+// only case where playedTogether/blocked-filtering should run at all — it's
+// the same "quick note" the host sees when deciding on a join request.
+async function buildTeetimeResponse(row, viewerId, blockedIds) {
   const json = teetimeRowToJson(row);
   json.ratings = await getRatingsForTeetime(row.id);
   const hostSummary = await getRatingSummary(row.host_id);
   json.hostAvgRating = hostSummary.avgRating;
   json.hostRatingCount = hostSummary.ratingCount;
+  if (viewerId && viewerId === row.host_id) {
+    let requests = json.requests;
+    if (blockedIds && blockedIds.size) {
+      requests = requests.filter(r => r.status !== 'pending' || !blockedIds.has(r.userId));
+    }
+    json.requests = await Promise.all(requests.map(async r => ({
+      ...r,
+      playedTogether: await getPlayedTogetherCount(viewerId, r.userId),
+    })));
+  }
   return json;
 }
 
-async function toProfileJson(row) {
+// viewerId is who's looking, not who the profile belongs to — when it's
+// someone other than the profile owner, we add "mutual rounds" and whether
+// the viewer has blocked this person, both scoped to that specific pairing.
+async function toProfileJson(row, viewerId) {
   const summary = await getRatingSummary(row.user_id);
-  return {
+  const json = {
     id: row.user_id,
     name: row.name,
     homeCourse: row.home_course,
@@ -134,6 +151,11 @@ async function toProfileJson(row) {
     avgRating: summary.avgRating,
     ratingCount: summary.ratingCount
   };
+  if (viewerId && viewerId !== row.user_id) {
+    json.mutualRounds = await getPlayedTogetherCount(viewerId, row.user_id);
+    json.blockedByMe = await blockedByViewer(viewerId, row.user_id);
+  }
+  return json;
 }
 
 async function notifyUser(userId, title, body) {
@@ -159,6 +181,65 @@ function isParticipant(teetimeRow, userId) {
   if (teetimeRow.host_id === userId) return true;
   const requests = teetimeRow.requests || [];
   return requests.some(r => r.userId === userId && r.status === 'approved');
+}
+
+// --- Blocking & "played together" ----------------------------------------
+// Every id in a block row is user-controlled (guests trust a client-supplied
+// id — see resolveUserId above), so these always use parameterized filters
+// (.eq/.in) rather than building a filter string with ids interpolated into
+// it, which would otherwise be an injection vector into PostgREST's filter
+// syntax.
+async function getBlockedUserIds(userId) {
+  const [{ data: asBlocker, error: e1 }, { data: asBlocked, error: e2 }] = await Promise.all([
+    supabase.from('blocks').select('blocked_id').eq('blocker_id', userId),
+    supabase.from('blocks').select('blocker_id').eq('blocked_id', userId),
+  ]);
+  if (e1) throw e1;
+  if (e2) throw e2;
+  const ids = new Set();
+  (asBlocker || []).forEach(r => ids.add(r.blocked_id));
+  (asBlocked || []).forEach(r => ids.add(r.blocker_id));
+  return ids;
+}
+
+// True if either user has blocked the other — used to gate join requests,
+// where a block in any direction should stop the interaction.
+async function isBlocked(userA, userB) {
+  const blocked = await getBlockedUserIds(userA);
+  return blocked.has(userB);
+}
+
+// Whether viewer specifically blocked target (not the reverse) — used to
+// drive the Block/Unblock toggle on a profile without revealing to the
+// viewer whether the other person has blocked them.
+async function blockedByViewer(viewerId, targetId) {
+  const { data, error } = await supabase
+    .from('blocks').select('id').eq('blocker_id', viewerId).eq('blocked_id', targetId).maybeSingle();
+  if (error) throw error;
+  return !!data;
+}
+
+// Counts past, non-cancelled rounds where both users were confirmed
+// participants (host, or an approved request) — the basis for "You've
+// played N rounds with this person" and a profile's "N mutual rounds".
+// Fetches the whole teetimes table and filters in JS, same tradeoff
+// GET /api/teetimes already makes — fine at this prototype's scale, and
+// there's no efficient way to ask Postgres "does this JSONB array contain
+// an approved entry for either of these two users" without a much heavier
+// index than this app needs yet.
+async function getPlayedTogetherCount(userA, userB) {
+  if (!userA || !userB || userA === userB) return 0;
+  const { data: rows, error } = await supabase.from('teetimes').select('host_id, requests, date, status');
+  if (error) throw error;
+  const today = new Date().toISOString().slice(0, 10);
+  const wasConfirmed = (row, userId) =>
+    row.host_id === userId || (row.requests || []).some(r => r.userId === userId && r.status === 'approved');
+  return (rows || []).filter(row =>
+    row.status !== 'cancelled' &&
+    row.date < today &&
+    wasConfirmed(row, userA) &&
+    wasConfirmed(row, userB)
+  ).length;
 }
 
 // Free geocoding via OpenStreetMap's Nominatim — no API key needed.
@@ -422,14 +503,26 @@ app.post('/api/profiles', ah(async (req, res) => {
 app.get('/api/profiles/:userId', ah(async (req, res) => {
   const user = await getUser(req.params.userId);
   if (!user) return res.status(404).json({ error: 'Not found' });
-  res.json(await toProfileJson(user));
+  const viewerId = resolveUserId(req, req.query.viewerId);
+  res.json(await toProfileJson(user, viewerId));
 }));
 
 // --- Tee times -------------------------------------------------------------
 app.get('/api/teetimes', ah(async (req, res) => {
+  const viewerId = resolveUserId(req, req.query.userId);
   const { data: rows, error } = await supabase.from('teetimes').select('*').order('created_at', { ascending: false });
   if (error) return res.status(500).json({ error: 'Could not load tee times' });
-  res.json(await Promise.all(rows.map(buildTeetimeResponse)));
+
+  // Blocking hides rounds in both directions: a blocked-or-blocking host's
+  // rounds disappear from this viewer's Discover, same as this viewer's
+  // rounds disappear from theirs (via the same check on their own request).
+  let visibleRows = rows;
+  let blockedIds = null;
+  if (viewerId) {
+    blockedIds = await getBlockedUserIds(viewerId);
+    if (blockedIds.size) visibleRows = rows.filter(r => !blockedIds.has(r.host_id));
+  }
+  res.json(await Promise.all(visibleRows.map(r => buildTeetimeResponse(r, viewerId, blockedIds))));
 }));
 
 app.post('/api/teetimes', ah(async (req, res) => {
@@ -477,6 +570,9 @@ app.post('/api/teetimes/:id/request', ah(async (req, res) => {
   const { data: row, error } = await supabase.from('teetimes').select('*').eq('id', req.params.id).maybeSingle();
   if (error) return res.status(500).json({ error: 'Could not load tee time' });
   if (!row) return res.status(404).json({ error: 'Not found' });
+  if (await isBlocked(userId, row.host_id)) {
+    return res.status(403).json({ error: "You can't request to join this round" });
+  }
   const requests = row.requests || [];
   if (requests.some(r => r.userId === userId)) {
     return res.json(await buildTeetimeResponse(row)); // already requested, no-op
@@ -644,6 +740,51 @@ app.post('/api/push/subscribe', async (req, res) => {
     res.status(500).json({ error: 'Could not save subscription' });
   }
 });
+
+// --- Blocking & reporting --------------------------------------------------
+app.get('/api/blocks/mine', ah(async (req, res) => {
+  const userId = resolveUserId(req, req.query.userId);
+  if (!userId) return res.status(400).json({ error: 'userId is required' });
+  const { data, error } = await supabase.from('blocks').select('blocked_id').eq('blocker_id', userId);
+  if (error) return res.status(500).json({ error: 'Could not load blocked users' });
+  res.json({ blockedIds: (data || []).map(r => r.blocked_id) });
+}));
+
+app.post('/api/blocks', ah(async (req, res) => {
+  const userId = resolveUserId(req, req.body.userId);
+  const { blockedId } = req.body;
+  if (!userId || !blockedId) return res.status(400).json({ error: 'userId and blockedId are required' });
+  if (userId === blockedId) return res.status(400).json({ error: "You can't block yourself" });
+  const { error } = await supabase.from('blocks')
+    .upsert({ blocker_id: userId, blocked_id: blockedId, created_at: Date.now() }, { onConflict: 'blocker_id,blocked_id' });
+  if (error) return res.status(500).json({ error: 'Could not block user' });
+  res.json({ ok: true });
+}));
+
+app.delete('/api/blocks/:blockedId', ah(async (req, res) => {
+  const userId = resolveUserId(req, req.body.userId);
+  if (!userId) return res.status(400).json({ error: 'userId is required' });
+  const { error } = await supabase.from('blocks').delete().match({ blocker_id: userId, blocked_id: req.params.blockedId });
+  if (error) return res.status(500).json({ error: 'Could not unblock user' });
+  res.json({ ok: true });
+}));
+
+// No review dashboard yet — reports just land in Supabase (user_reports) for
+// manual review later. Keeping it this minimal was an explicit choice, not
+// an oversight: the mechanism and storage are the actual ask right now.
+app.post('/api/reports', ah(async (req, res) => {
+  const userId = resolveUserId(req, req.body.userId);
+  const { reportedId, reason } = req.body;
+  if (!userId || !reportedId || !reason || !reason.trim()) {
+    return res.status(400).json({ error: 'reportedId and reason are required' });
+  }
+  if (userId === reportedId) return res.status(400).json({ error: "You can't report yourself" });
+  const { error } = await supabase.from('user_reports').insert({
+    reporter_id: userId, reported_id: reportedId, reason: reason.trim().slice(0, 500), created_at: Date.now()
+  });
+  if (error) return res.status(500).json({ error: 'Could not submit report' });
+  res.json({ ok: true });
+}));
 
 // --- Book a Tee Time (course request / waitlist) --------------------------
 // No real booking integration yet — this just collects demand signal on

@@ -146,8 +146,69 @@ const state = {
   bookLoading: false,
   bookError: '',
   bookSearchDebounceTimer: null,
-  myCourseRequests: []  // [{id, courseName, preferredDate, preferredTime, createdAt}]
+  myCourseRequests: [],  // [{id, courseName, preferredDate, preferredTime, createdAt}]
+  viewingUserId: null,       // userId of the profile popover currently open, or null
+  viewingUserProfile: null   // loaded profile for viewingUserId (includes mutualRounds/blockedByMe)
 };
+
+// Real Terms of Service / Privacy Policy / Help content — kept in sync
+// wording-for-wording with foursome-mobile/src/legalContent.js, so both
+// platforms show the same policy. Each section is
+// { h: heading, p: [paragraphs], list: [bullet items] } — list/multiple p
+// entries are both optional.
+const TERMS_SECTIONS = [
+  { h: 'The short version', p: ["Foursome helps golfers post open tee times and find groups to play with. Be honest in your profile, be respectful to other golfers, and use good judgment when meeting people in person — just like you would with any app that connects you with strangers. The rest of this page spells out the details."] },
+  { h: 'Who can use Foursome', p: ["You must be at least 18 years old to create a Foursome account or use the app. By using Foursome, you're confirming that you meet this requirement and that the information in your profile is accurate."] },
+  { h: 'Your account', p: ["You can use Foursome as a guest (a local profile stored only on your device, with no email or password) or with a full account (email and password, managed by our authentication provider, Supabase). Either way, you're responsible for the activity on your account and for keeping your login credentials private. If you're signed in on a device you share with others, remember to sign out when you're done."] },
+  { h: "What Foursome is — and isn't", p: ['Foursome is a place for golfers to post rounds they\'ve already booked and invite others to join, or to browse rounds other golfers have posted. We are not a booking service, and posting or joining a round through Foursome does not reserve a tee time at any course. The "Book a Tee Time" feature is a waitlist: it tells us which courses golfers want to see supported, and lets us notify you if that changes — it does not book anything on your behalf.'] },
+  { h: 'Posting and joining rounds', p: ["When you post a round, the details you enter (course, date, time, number of spots, handicap range, pace, and any notes) are visible to other Foursome users. When someone requests to join your round, you decide whether to approve or deny them — Foursome doesn't guarantee that any request will be approved, or that a posted round will fill up. You're responsible for the accuracy of what you post, including making sure you've actually got a tee time to share."] },
+  { h: 'Meeting people in person', p: ["Foursome connects you with other golfers, but the actual round happens off our platform, in person. We don't run background checks on users and can't guarantee the identity, behavior, or skill level of anyone you meet through the app. Use the same judgment you would with any app that connects you to strangers: consider meeting for the first time at the course itself, tell someone your plans, and trust your instincts. If something feels off, you can leave, block the other user, and report them to us."] },
+  { h: 'Messaging and conduct', p: ["Chat within a round is only visible to that round's host and approved participants. When using Foursome — in chat, in your bio, in round notes, or anywhere else — don't:"], list: ['Harass, threaten, or discriminate against anyone', 'Post spam, scams, or unrelated advertising', 'Impersonate another person or misrepresent your handicap or identity', "Share anyone else's personal information without their consent", 'Use Foursome for anything illegal'] },
+  { h: 'Ratings', p: ["After a round, participants can rate each other. Ratings should reflect your honest, good-faith experience playing with that person — not a way to settle an unrelated dispute or retaliate against someone. Don't post a rating or comment about someone you didn't actually play a round with."] },
+  { h: 'Blocking and reporting', p: ["If you'd rather not interact with a specific user, you can block them — this hides your rounds from each other and prevents join requests between you, in both directions. If you believe someone has violated these terms or otherwise made you feel unsafe, you can report them, separately from blocking. We review reports and may take action, including warning, suspending, or removing an account, at our discretion."] },
+  { h: 'Your content', p: ["You own what you post — your bio, round notes, messages, and ratings. By posting it on Foursome, you're giving us permission to store and display it to the other users it's meant for (for example, showing your round notes to people browsing Discover, or your bio to someone viewing your profile). You're responsible for what you post and confirm you have the right to share it."] },
+  { h: 'Account termination', p: ["You can delete your account at any time from Settings — this permanently removes your profile, the rounds you've hosted (along with their chat history), your ratings, and (if you're signed in) your login itself. We may suspend or terminate your account if you violate these terms."] },
+  { h: 'No warranty, limitation of liability', p: ['Foursome is provided "as is." We work to keep it running reliably, but we don\'t guarantee it will always be available, error-free, or that any particular round, course, or golfer will meet your expectations. To the fullest extent the law allows, Foursome isn\'t liable for disputes, injuries, or losses arising from interactions between users, or from a course\'s own policies, conditions, or availability.'] },
+  { h: 'Changes to these terms', p: ["We may update these terms as Foursome changes. If we make a significant change, we'll do our best to let you know in the app. Continuing to use Foursome after an update means you accept the revised terms."] },
+  { h: 'Contact', p: ['Questions about these terms? Email us at foursomeapp.golf@gmail.com.'] },
+];
+
+const PRIVACY_SECTIONS = [
+  { h: 'The short version', p: ["We collect what we need to run Foursome — your profile info, the rounds/messages/ratings you create, and (only when you choose to share it) your location, to help you find nearby rounds and courses. We don't sell your data, and we don't share it with advertisers."] },
+  { h: 'Information we collect', p: [
+    "Account info: If you sign up with email and password, that's handled by our authentication provider, Supabase — we never see or store your plaintext password. If you use Foursome as a guest, we assign a random local ID stored only on your device; there's no email or password involved.",
+    'Profile info: your name, home course, handicap, and bio (if you add one) — set when you create your profile and visible to other Foursome users.',
+    'Rounds, messages, ratings, and reports: the tee times you post or request to join, chat messages within a round, ratings and comments you leave for other players, and reports you file against another user.',
+    'Location: when you tap "Use my location," your device\'s coordinates are used to sort and filter rounds by distance, and to search for nearby golf courses. That distance calculation happens on your device — we don\'t store your location tied to your account. If you search for nearby courses, your coordinates are sent to our server for that one search (so it can look up courses via OpenStreetMap on your behalf); we cache course results generally, not tied to your identity, and don\'t retain your coordinates afterward.',
+    "Push notification data: if you turn on notifications, your browser gives us a push subscription (an anonymous endpoint provided by your browser) so we can alert you about join requests, approvals, and messages.",
+  ] },
+  { h: 'How we use your information', list: ['To run the core features — posting/joining rounds, matching you with other golfers, messaging within a round, and showing ratings and mutual-round history on profiles', 'To help you find nearby rounds and courses when you choose to share your location', 'To respond to reports and enforce our Terms of Service', "To send you notifications you've opted into", 'To keep Foursome secure and working reliably'], p: ["We don't use your information for advertising, and we don't sell it to third parties."] },
+  { h: 'Who can see what', p: ["Your name, home course, handicap, bio, and rating are visible to other Foursome users, particularly anyone viewing a round you're hosting or joining. Round chat is only visible to that round's host and approved participants. Reports you file are visible only to us."] },
+  { h: 'Third parties we work with', p: ['We use a small number of outside services to run Foursome:'], list: ["Supabase — our database, authentication, and hosting provider. Your account, profile, and app data are stored on Supabase's infrastructure.", 'OpenStreetMap (Nominatim and Overpass) — public, community-run map data we query to look up golf course names and locations. We only send a search term or coordinates for that lookup, never your identity.', 'Stripe — if and when Foursome offers a paid Pro plan, Stripe handles payment directly; we never see or store your full card details.'] },
+  { h: 'How long we keep your data', p: ["We keep your data for as long as your account is active. If you delete your account from Settings, we permanently remove your profile, the rounds you've hosted (and their chat history), your ratings, your push subscription, and your blocks — and, if you were signed in, your login itself. Reports you filed against others are deleted too.", "One exception: if someone else filed a report about you, we keep that report even after you delete your account, since it's part of our safety record and not something a person should be able to erase by leaving."] },
+  { h: 'Your choices', list: ["Location is entirely opt-in — the app works without it, just without distance sorting and nearby course search.", 'You can edit your profile (name, home course, handicap, bio) any time from Settings.', 'You can turn push notifications on or off from Settings.', 'You can block or report another user any time from their profile.', 'You can delete your account entirely from Settings — see above for what that removes.'] },
+  { h: "Children's privacy", p: ["Foursome isn't intended for anyone under 18, and we don't knowingly collect information from anyone under that age."] },
+  { h: 'Security', p: ["We take reasonable steps to protect your information, but no app or service can guarantee complete security. Please use a strong, unique password if you create a full account."] },
+  { h: 'Changes to this policy', p: ["We may update this policy as Foursome changes. If we make a significant change, we'll do our best to let you know in the app."] },
+  { h: 'Contact', p: ['Questions about your data or this policy? Email us at foursomeapp.golf@gmail.com.'] },
+];
+
+const HELP_SECTIONS = [
+  { h: 'What is Foursome?', p: ["Foursome helps golfers post rounds they've already got a tee time for and find others to join, or browse open rounds nearby and request to play."] },
+  { h: 'Do I need to make an account?', p: ["No — you can use Foursome as a guest right away. A guest profile lives only on your device. If you want your profile and rounds to follow you across devices, sign up with an email and password any time from the welcome screen or Settings."] },
+  { h: "What's the difference between a guest and a signed-in account?", p: ["A guest profile is stored locally on your device and isn't tied to an email or password. If you switch devices or clear your app data, a guest profile can't be recovered. Signing up moves everything from your guest profile into a real account, so it's backed up and available anywhere you sign in."] },
+  { h: 'Does Foursome share my location with other users?', p: ["No. Your device's location is only used on your own device to calculate distance to other posted rounds, and (if you search nearby courses) sent to our server for that one search. Other users never see your exact location — at most, they'll see a round's distance from wherever you set your location."] },
+  { h: 'How do I post a round?', p: ['Go to Post Round, fill in the course, date, time, number of open spots, and any preferences (handicap range, pace), then tap Post round. It shows up immediately for other golfers in Discover.'] },
+  { h: 'How do I join a round someone else posted?', p: ["Browse Discover, and tap Request to join on any open round. The host will see your name and handicap and can approve or decline your request."] },
+  { h: 'What happens after I request to join a round?', p: ["You'll see the status (pending, approved, or declined) under My Rounds. If the host approves you, you'll be able to chat with them and other approved players in that round's chat."] },
+  { h: 'Can I message other golfers?', p: ["Yes, once you're an approved participant (or the host) of a round, you can chat with everyone else confirmed for that round. You can't message someone outside of a shared round."] },
+  { h: 'How do ratings work?', p: ["After playing a round together, you can rate the other person 1–5 stars. Ratings build up on a person's profile over time, so other golfers can see if someone's a reliable playing partner."] },
+  { h: 'What does blocking someone do?', p: ["Blocking hides your rounds from that person (and theirs from you) in Discover, and stops either of you from requesting to join the other's rounds. You can block someone from their profile or from a round's participant list, and unblock them the same way later."] },
+  { h: 'How do I report someone?', p: ["Open their profile and tap Report user, then briefly describe what happened. Reports go straight to us for review — they're separate from blocking, so you can report someone whether or not you've also blocked them."] },
+  { h: 'What is "Book a Tee Time"?', p: ["It's a waitlist, not a booking system. Search for a course you'd like supported, and optionally a preferred date/time, and we'll keep track of demand — it doesn't reserve an actual tee time at the course."] },
+  { h: 'How do I delete my account?', p: ["Go to Settings > Delete account. This is permanent — it removes your profile, hosted rounds and their chat history, ratings, and (if you're signed in) your login."] },
+  { h: 'Who do I contact if I need help?', p: ['Email foursomeapp.golf@gmail.com — see Contact us in Settings for a direct link.'] },
+];
 
 // Supabase Auth — email/password for now. Adding Google/Apple later is just
 // another provider call here (sbAuth.auth.signInWithOAuth({ provider: 'google' })),
@@ -524,10 +585,70 @@ async function signOut(){
 
 async function loadTeeTimes(){
   try{
-    state.teetimes = await apiGet('/api/teetimes');
+    const q = state.myUserId ? ('?userId=' + encodeURIComponent(state.myUserId)) : '';
+    state.teetimes = await apiGet('/api/teetimes' + q);
   }catch(e){
     console.error('Failed to load tee times', e);
     state.teetimes = [];
+  }
+}
+
+// --- User profile popover (mutual rounds, block, report) -------------------
+// Opened by tapping a host's or participant's name anywhere in the app
+// (see the data-view-user delegated handler in render()).
+async function openUserProfile(userId){
+  if(!userId || userId === state.myUserId) return;
+  state.viewingUserId = userId;
+  state.viewingUserProfile = null;
+  render();
+  try{
+    state.viewingUserProfile = await apiGet('/api/profiles/' + userId + '?viewerId=' + encodeURIComponent(state.myUserId));
+  }catch(e){
+    showToast('Could not load that profile');
+    state.viewingUserId = null;
+    console.error(e);
+  }
+  render();
+}
+
+function closeUserProfile(){
+  state.viewingUserId = null;
+  state.viewingUserProfile = null;
+  render();
+}
+
+async function toggleBlockViewingUser(){
+  const userId = state.viewingUserId;
+  const prof = state.viewingUserProfile;
+  if(!userId || !prof) return;
+  try{
+    if(prof.blockedByMe){
+      await apiDelete('/api/blocks/' + userId, { userId: state.myUserId });
+      showToast('Unblocked');
+    } else {
+      await apiPost('/api/blocks', { userId: state.myUserId, blockedId: userId });
+      showToast('Blocked — they can no longer see or join your rounds');
+    }
+    state.viewingUserProfile = Object.assign({}, prof, { blockedByMe: !prof.blockedByMe });
+    await loadTeeTimes();
+    render();
+  }catch(e){
+    showToast(e.message || 'Could not update block status');
+    console.error(e);
+  }
+}
+
+async function reportViewingUser(){
+  const userId = state.viewingUserId;
+  if(!userId) return;
+  const reason = prompt("Briefly describe why you're reporting this user:");
+  if(!reason || !reason.trim()) return;
+  try{
+    await apiPost('/api/reports', { userId: state.myUserId, reportedId: userId, reason: reason.trim() });
+    showToast('Report submitted — thank you');
+  }catch(e){
+    showToast(e.message || 'Could not submit report');
+    console.error(e);
   }
 }
 
@@ -589,7 +710,7 @@ async function requestToJoin(teetimeId){
     await loadTeeTimes();
     render();
   }catch(e){
-    showToast('Could not send request — try again');
+    showToast(e.message || 'Could not send request — try again');
     console.error(e);
   }
 }
@@ -819,10 +940,10 @@ function renderSettingsOverlay(){
   let body;
   if(state.settingsView === 'changePassword') body = renderSettingsChangePassword();
   else if(state.settingsView === 'deleteConfirm') body = renderSettingsDeleteConfirm();
-  else if(state.settingsView === 'help') body = renderSettingsStatic('Help & FAQ', "Common questions will go here. For now, reach out via Contact us and we'll help directly.");
+  else if(state.settingsView === 'help') body = renderSettingsDoc('Help & FAQ', HELP_SECTIONS);
   else if(state.settingsView === 'contact') body = renderSettingsContact();
-  else if(state.settingsView === 'terms') body = renderSettingsStatic('Terms of Service', 'Placeholder — the real terms will go here before launch.');
-  else if(state.settingsView === 'privacy') body = renderSettingsStatic('Privacy Policy', 'Placeholder — the real privacy policy will go here before launch.');
+  else if(state.settingsView === 'terms') body = renderSettingsDoc('Terms of Service', TERMS_SECTIONS);
+  else if(state.settingsView === 'privacy') body = renderSettingsDoc('Privacy Policy', PRIVACY_SECTIONS);
   else body = renderSettingsMain();
 
   return `
@@ -892,10 +1013,19 @@ function renderSettingsChangePassword(){
   `;
 }
 
-function renderSettingsStatic(title, body){
+// Renders { h, p: [...], list: [...] } sections — used for Terms/Privacy/
+// Help, which are real, structured documents rather than a single paragraph.
+function renderSettingsDoc(title, sections){
+  const body = sections.map((s, i) => `
+    <div ${i > 0 ? 'style="margin-top:14px;"' : ''}>
+      ${s.h ? `<div style="font-weight:700; font-size:13px; color:var(--ink); margin-bottom:2px;">${escapeHtml(s.h)}</div>` : ''}
+      ${(s.p || []).map((para, pi) => `<div class="notes" style="${pi === 0 && !s.h ? 'margin-top:0;' : ''}">${escapeHtml(para)}</div>`).join('')}
+      ${s.list ? `<ul style="margin:6px 0 0; padding-left:18px;">${s.list.map(item => `<li class="notes" style="margin-top:4px;">${escapeHtml(item)}</li>`).join('')}</ul>` : ''}
+    </div>
+  `).join('');
   return `
     <h1 class="screen-title">${escapeHtml(title)}</h1>
-    <div class="card"><div class="notes" style="margin-top:0;">${escapeHtml(body)}</div></div>
+    <div class="card">${body}</div>
     <div class="reset-link" data-settings-nav="main">Back</div>
   `;
 }
@@ -906,7 +1036,7 @@ function renderSettingsContact(){
     <div class="card">
       <div class="notes" style="margin-top:0;">Have a question or found a bug? Email us and we'll get back to you.</div>
       <div class="row" style="margin-top:10px;">
-        <a class="btn btn-primary" style="text-decoration:none; text-align:center; display:block;" href="mailto:support@example.com">Email support</a>
+        <a class="btn btn-primary" style="text-decoration:none; text-align:center; display:block;" href="mailto:foursomeapp.golf@gmail.com">Email support</a>
       </div>
     </div>
     <div class="reset-link" data-settings-nav="main">Back</div>
@@ -1033,6 +1163,7 @@ function render(){
     ${state.chatTeetimeId ? renderChatOverlay() : ''}
     ${state.showSettings ? renderSettingsOverlay() : ''}
     ${state.authOverlay ? renderAuthOverlay() : ''}
+    ${state.viewingUserId ? renderUserProfileOverlay() : ''}
   `;
 
   document.getElementById('who-btn').addEventListener('click', () => {
@@ -1043,6 +1174,10 @@ function render(){
   if(state.chatTeetimeId) attachChatHandlers();
   if(state.showSettings) attachSettingsHandlers();
   if(state.authOverlay) attachAuthOverlayHandlers();
+  if(state.viewingUserId) attachUserProfileHandlers();
+  document.querySelectorAll('[data-view-user]').forEach(el => {
+    el.addEventListener('click', () => openUserProfile(el.dataset.viewUser));
+  });
 
   document.querySelectorAll('.navitem').forEach(el => {
     el.addEventListener('click', async () => {
@@ -1247,6 +1382,42 @@ function attachAuthOverlayHandlers(){
   });
 }
 
+function renderUserProfileOverlay(){
+  const prof = state.viewingUserProfile;
+  const body = !prof ? '<div class="loading">Loading…</div>' : `
+    <div class="card">
+      <div class="course-name">${escapeHtml(prof.name)}</div>
+      <div class="meta">Home course: ${escapeHtml(prof.homeCourse || '—')}</div>
+      <div class="pill-row">
+        <span class="pill">${escapeHtml(String(prof.handicap))} handicap</span>
+        ${prof.ratingCount > 0 ? `<span class="pill">★${prof.avgRating} (${prof.ratingCount})</span>` : `<span class="pill" style="opacity:0.6;">No ratings yet</span>`}
+        ${prof.mutualRounds != null ? `<span class="pill">${prof.mutualRounds} mutual round${prof.mutualRounds===1?'':'s'}</span>` : ''}
+      </div>
+    </div>
+    <div class="row">
+      <button class="btn ${prof.blockedByMe ? 'btn-ghost' : 'btn-deny'}" id="profile-block-btn">${prof.blockedByMe ? 'Unblock' : 'Block user'}</button>
+      <button class="btn btn-ghost" id="profile-report-btn">Report user</button>
+    </div>
+  `;
+  return `
+    <div id="user-profile-overlay" style="position:fixed; inset:0; background:var(--paper); z-index:72; display:flex; flex-direction:column;">
+      <div style="padding: max(14px, env(safe-area-inset-top)) 18px 12px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; flex-shrink:0; background:#fff;">
+        <div style="font-weight:700; font-size:15px;">Profile</div>
+        <div id="user-profile-close" style="cursor:pointer; font-size:13px; opacity:0.6; padding:6px;">Close</div>
+      </div>
+      <div class="content" style="flex:1; overflow-y:auto;">${body}</div>
+    </div>
+  `;
+}
+
+function attachUserProfileHandlers(){
+  document.getElementById('user-profile-close').addEventListener('click', closeUserProfile);
+  const blockBtn = document.getElementById('profile-block-btn');
+  if(blockBtn) blockBtn.addEventListener('click', toggleBlockViewingUser);
+  const reportBtn = document.getElementById('profile-report-btn');
+  if(reportBtn) reportBtn.addEventListener('click', reportViewingUser);
+}
+
 function renderOnboarding(){
   return `
     <div class="content" style="padding-top: calc(60px + env(safe-area-inset-top));">
@@ -1394,7 +1565,7 @@ function renderDiscover(){
           </div>
           <div class="meta">${escapeHtml(t.date)} · ${escapeHtml(t.time)} · ${t.openSpots} of ${t.totalSpots} spots open</div>
           ${distanceLine}
-          <div class="meta">Hosted by ${escapeHtml(t.hostName)}${ratingBadge}${t.hostIsPro ? ' <span class="pill" style="border-color:var(--fairway); color:var(--fairway); font-weight:700;">PRO</span>' : ''}${t.pace ? ' · ' + escapeHtml(t.pace) + ' pace' : ''}</div>
+          <div class="meta">Hosted by <span data-view-user="${t.hostId}" style="text-decoration:underline; cursor:pointer;">${escapeHtml(t.hostName)}</span>${ratingBadge}${t.hostIsPro ? ' <span class="pill" style="border-color:var(--fairway); color:var(--fairway); font-weight:700;">PRO</span>' : ''}${t.pace ? ' · ' + escapeHtml(t.pace) + ' pace' : ''}</div>
           ${hostStatLine}
           ${t.notes ? `<div class="notes">${escapeHtml(t.notes)}</div>` : ''}
           ${actionHtml}
@@ -1533,9 +1704,12 @@ function renderMyRounds(){
           t.requests.map(r => {
             const hcpDisplay = `${escapeHtml(String(r.handicap))} HCP · ${confirmedRoundsFor(r.userId)} confirmed round${confirmedRoundsFor(r.userId)===1?'':'s'}`;
             const myRatingOfThem = t.ratings.find(rt => rt.raterId === state.myUserId && rt.rateeId === r.userId);
+            const playedTogetherLine = (r.status === 'pending' && r.playedTogether != null)
+              ? `<div class="meta" style="width:100%; margin-top:2px;">${r.playedTogether > 0 ? `You've played ${r.playedTogether} round${r.playedTogether===1?'':'s'} with this person` : "You haven't played with this person before"}</div>`
+              : '';
             return `
             <div class="request-row" style="flex-wrap:wrap;">
-              <span>${escapeHtml(r.name)} · ${hcpDisplay}</span>
+              <span><span data-view-user="${r.userId}" style="text-decoration:underline; cursor:pointer;">${escapeHtml(r.name)}</span> · ${hcpDisplay}</span>
               ${r.status === 'pending' ?
                 `<span>
                   <button class="btn btn-primary" style="padding:5px 10px; font-size:11px; margin-right:4px;" data-approve="${t.id}|${r.userId}">Approve</button>
@@ -1543,6 +1717,7 @@ function renderMyRounds(){
                 </span>` :
                 `<span class="status-tag status-${r.status}">${r.status}</span>`
               }
+              ${playedTogetherLine}
               ${r.status === 'approved' ? `<div style="width:100%;">${starPickerHtml(t.id, r.userId, myRatingOfThem ? myRatingOfThem.rating : null)}</div>` : ''}
             </div>
           `;}).join('')
@@ -1564,7 +1739,7 @@ function renderMyRounds(){
             <div class="course-name">${escapeHtml(t.course)}</div>
             <span class="status-tag status-${myReq.status}">${myReq.status}</span>
           </div>
-          <div class="meta">${escapeHtml(t.date)} · ${escapeHtml(t.time)} · hosted by ${escapeHtml(t.hostName)}</div>
+          <div class="meta">${escapeHtml(t.date)} · ${escapeHtml(t.time)} · hosted by <span data-view-user="${t.hostId}" style="text-decoration:underline; cursor:pointer;">${escapeHtml(t.hostName)}</span></div>
           ${myReq.status === 'approved' ? `<div class="row"><button class="btn btn-ghost" style="padding:7px 10px; font-size:12px;" data-chat-open="${t.id}">Chat</button></div>` : ''}
           ${myReq.status === 'approved' ? starPickerHtml(t.id, t.hostId, myRatingOfHost ? myRatingOfHost.rating : null) : ''}
         </div>
