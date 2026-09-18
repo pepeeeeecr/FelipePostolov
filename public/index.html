@@ -1,0 +1,1924 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Foursome</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" type="image/png" href="/favicon-32.png">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<meta name="theme-color" content="#16281B">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Foursome">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --fairway: #16281B;
+    --turf: #3E7249;
+    --sand: #C9A25C;
+    --paper: #F6F3EC;
+    --ink: #1C2A1F;
+    --flag: #B8412F;
+    --line: rgba(28,42,31,0.14);
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    background: #16281B;
+    color: var(--ink);
+  }
+  #app{
+    max-width:420px;
+    margin:0 auto;
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    background:var(--paper);
+  }
+  .topbar{
+    padding:10px 20px;
+    padding-top: max(10px, env(safe-area-inset-top));
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    border-bottom:1px solid var(--line);
+    flex-shrink:0;
+  }
+  .logo-mark{ width:38px; height:38px; flex-shrink:0; border-radius:9px; }
+  .wordmark{
+    font-family:'Courier New', monospace;
+    font-weight:700;
+    font-size:16px;
+    letter-spacing:0.5px;
+    color:var(--fairway);
+  }
+  .who{ font-size:11px; opacity:0.55; cursor:pointer; }
+  .content{ flex:1; padding:16px 18px calc(90px + env(safe-area-inset-bottom)); overflow-y:auto; }
+  h1.screen-title{ font-size:21px; margin:4px 0 14px; font-weight:600; }
+  .card{ background:#fff; border:1px solid var(--line); border-radius:16px; padding:14px; margin-bottom:12px; }
+  .card-top{display:flex; justify-content:space-between; align-items:baseline;}
+  .course-name{font-weight:700; font-size:15px;}
+  .hcp{ font-family:'Courier New', monospace; font-size:12px; background:var(--sand); padding:2px 7px; border-radius:5px; font-weight:700; }
+  .meta{font-size:12.5px; opacity:0.65; margin-top:3px;}
+  .notes{font-size:12.5px; margin-top:8px; opacity:0.8;}
+  .row{display:flex; gap:8px; margin-top:10px;}
+  .btn{ border:none; border-radius:10px; padding:9px 0; flex:1; font-size:13px; font-weight:600; cursor:pointer; }
+  .btn-primary{background:var(--fairway); color:#fff;}
+  .btn-primary:disabled{opacity:0.4; cursor:default;}
+  .btn-ghost{background:transparent; border:1px solid var(--line); color:var(--ink);}
+  .btn-deny{background:transparent; border:1px solid var(--flag); color:var(--flag);}
+  .empty{ text-align:center; padding:50px 20px; opacity:0.55; font-size:13.5px; }
+  label{ display:block; font-size:12px; font-weight:600; margin:14px 0 5px; opacity:0.75; }
+  input, select, textarea{ width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:#fff; font-family:inherit; color:var(--ink); }
+  textarea{resize:vertical; min-height:60px;}
+  .form-actions{margin-top:20px;}
+  .navbar{ position:fixed; bottom:0; left:50%; transform:translateX(-50%); width:100%; max-width:420px; display:flex; background:#fff; border-top:1px solid var(--line); padding-bottom: max(10px, env(safe-area-inset-bottom)); }
+  .navitem{ flex:1; text-align:center; padding:11px 0 9px; font-size:11px; font-weight:600; opacity:0.45; cursor:pointer; }
+  .navitem.active{opacity:1; color:var(--fairway);}
+  .pill-row{display:flex; gap:6px; flex-wrap:wrap; margin-top:8px;}
+  .pill{font-size:11px; padding:3px 8px; border-radius:20px; border:1px solid var(--line);}
+  .request-row{ display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-top:1px solid var(--line); font-size:13px; }
+  .status-tag{font-size:11px; font-weight:700; padding:2px 8px; border-radius:20px;}
+  .status-pending{background:var(--sand); color:var(--ink);}
+  .status-approved{background:var(--turf); color:#fff;}
+  .status-denied{background:#eee; color:#999;}
+  .toast{ position:fixed; bottom:80px; left:50%; transform:translateX(-50%); background:var(--ink); color:#fff; padding:10px 18px; border-radius:20px; font-size:13px; opacity:0; transition:opacity 0.25s; pointer-events:none; max-width:380px; text-align:center; z-index:50; }
+  .toast.show{opacity:0.95;}
+  .loading{ text-align:center; padding:60px 20px; opacity:0.5; font-size:13.5px; }
+  .splash{
+    height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:#16281B;
+  }
+  .splash-word{
+    font-family:Georgia, 'Times New Roman', serif; font-weight:bold; font-size:44px;
+    color:#F6F3EC; letter-spacing:2px; line-height:1.15; text-align:center;
+  }
+  .splash-rule{ width:120px; height:3px; background:#C9A25C; margin:10px 0; }
+  .reset-link{ display:block; text-align:center; font-size:11px; opacity:0.4; margin-top:24px; }
+  .settings-group-label{ font-size:12px; font-weight:700; opacity:0.55; margin:18px 0 8px; }
+  .settings-group-label:first-child{ margin-top:4px; }
+  .settings-card{ background:#fff; border:1px solid var(--line); border-radius:16px; overflow:hidden; margin-bottom:4px; }
+  .settings-card.danger{ border-color:var(--flag); }
+  .settings-row{ display:flex; justify-content:space-between; align-items:center; padding:13px 14px; border-top:1px solid var(--line); font-size:14px; cursor:pointer; }
+  .settings-row:first-child{ border-top:none; }
+  .settings-row .settings-row-sub{ font-size:11px; opacity:0.55; margin-top:2px; }
+  .settings-row.danger{ color:var(--flag); }
+</style>
+</head>
+<body>
+<div id="app"><div class="splash"><div class="splash-word">FOUR</div><div class="splash-rule"></div><div class="splash-word">SOME</div></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const state = {
+  myUserId: null,
+  profile: null,
+  profileList: [],
+  showSwitcher: false,
+  tab: 'discover',
+  teetimes: [],
+  loading: true,
+  filters: { pace: '', maxDistance: '', courseSearch: '', dateFilter: '' },
+  discoverSearchFocused: false,
+  viewedThisSession: new Set(),
+  myLocation: null,
+  chatTeetimeId: null,
+  chatCourseName: '',
+  chatMessages: [],
+  chatPollInterval: null,
+  editingProfile: false,
+  session: null,
+  entryView: 'welcome',  // 'welcome' | 'signup' | 'login' — only shown pre-profile, brand new visitors
+  authOverlay: null,     // null | 'signup' | 'login' — "create an account" overlay for existing guests
+  authBusy: false,
+  authError: '',
+  showSettings: false,
+  settingsView: 'main',  // 'main' | 'changePassword' | 'help' | 'contact' | 'terms' | 'privacy' | 'deleteConfirm'
+  settingsBusy: false,
+  settingsError: '',
+  bookSearch: '',
+  bookSearchFocused: false,
+  bookSelectedCourse: null,
+  bookRequestBusy: false,
+  bookCourses: [],       // live results from OpenStreetMap for the current search/location context
+  bookLoading: false,
+  bookError: '',
+  bookSearchDebounceTimer: null,
+  myCourseRequests: []  // [{id, courseName, preferredDate, preferredTime, createdAt}]
+};
+
+// Supabase Auth — email/password for now. Adding Google/Apple later is just
+// another provider call here (sbAuth.auth.signInWithOAuth({ provider: 'google' })),
+// no changes needed anywhere else — the rest of the app only ever deals with
+// "is there a session" and "what's the user id", not how it was obtained.
+const SUPABASE_URL = 'https://wdminyysudahxnfndwla.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_9VwvgZj5D_2qPvz1FUz3nQ_JpDawhp_'; // Dashboard > Project Settings > API — safe to expose client-side
+const sbAuth = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+function uid(){
+  return 'u_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+}
+
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 2200);
+}
+
+function escapeHtml(s){
+  const d = document.createElement('div');
+  d.textContent = s == null ? '' : String(s);
+  return d.innerHTML;
+}
+
+function roundsHostedBy(userId){
+  return state.teetimes.filter(t => t.hostId === userId).length;
+}
+
+function confirmedRoundsFor(userId){
+  return state.teetimes.filter(t => t.requests.some(r => r.userId === userId && r.status === 'approved')).length;
+}
+
+function isPastDate(dateStr){
+  if(!dateStr) return false;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const d = new Date(dateStr + 'T00:00:00');
+  return d < today;
+}
+
+function pastRoundsFor(userId){
+  return state.teetimes.filter(t => {
+    if(t.status === 'cancelled') return false;
+    if(!isPastDate(t.date)) return false;
+    if(t.hostId === userId) return true;
+    return t.requests.some(r => r.userId === userId && r.status === 'approved');
+  }).sort((a,b) => new Date(b.date) - new Date(a.date));
+}
+
+function distanceMiles(lat1, lng1, lat2, lng2){
+  const toRad = d => d * Math.PI / 180;
+  const R = 3958.8; // Earth radius in miles
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat/2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng/2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function loadCachedLocation(){
+  try{
+    return JSON.parse(localStorage.getItem('foursome_myLocation') || 'null');
+  }catch(e){ return null; }
+}
+
+function requestLocation(){
+  if(!navigator.geolocation){
+    showToast('Location is not supported on this device');
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      state.myLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      localStorage.setItem('foursome_myLocation', JSON.stringify(state.myLocation));
+      showToast('Location set — showing distances now');
+      if(state.tab === 'book') refreshBookCourses();
+      render();
+    },
+    err => {
+      showToast('Could not get your location — check browser permissions');
+      console.error(err);
+    },
+    { timeout: 8000 }
+  );
+}
+
+// This is now a real website, so real localStorage works (the earlier
+// Claude-artifact restriction on browser storage doesn't apply here).
+function loadProfileList(){
+  try{
+    return JSON.parse(localStorage.getItem('foursome_profileList') || '[]');
+  }catch(e){ return []; }
+}
+function saveProfileList(list){
+  localStorage.setItem('foursome_profileList', JSON.stringify(list));
+}
+
+// Pulls the current Supabase session fresh on every call (rather than
+// trusting a cached token) so a refreshed/expired token doesn't silently
+// break requests — the client library handles the actual refresh.
+async function authHeaders(){
+  if(!state.session) return {};
+  const { data } = await sbAuth.auth.getSession();
+  state.session = data.session;
+  return state.session ? { 'Authorization': 'Bearer ' + state.session.access_token } : {};
+}
+
+async function apiGet(path){
+  const res = await fetch(path, { headers: await authHeaders() });
+  if(!res.ok) throw new Error('Request failed: ' + path);
+  return res.json();
+}
+async function apiPost(path, body){
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: Object.assign({ 'Content-Type': 'application/json' }, await authHeaders()),
+    body: JSON.stringify(body)
+  });
+  if(!res.ok){
+    let message = 'Request failed: ' + path;
+    try{ const data = await res.json(); if(data && data.error) message = data.error; }catch(e){ /* keep default */ }
+    throw new Error(message);
+  }
+  return res.json();
+}
+async function apiDelete(path, body){
+  const res = await fetch(path, {
+    method: 'DELETE',
+    headers: Object.assign({ 'Content-Type': 'application/json' }, await authHeaders()),
+    body: JSON.stringify(body)
+  });
+  if(!res.ok) throw new Error('Request failed: ' + path);
+  return res.json();
+}
+
+async function cancelRound(teetimeId){
+  if(!confirm('Cancel this round? Anyone who joined or requested will be notified.')) return;
+  try{
+    await apiDelete('/api/teetimes/' + teetimeId, { userId: state.myUserId });
+    showToast('Round cancelled');
+    await loadTeeTimes();
+    render();
+  }catch(e){
+    showToast('Could not cancel — try again');
+    console.error(e);
+  }
+}
+
+function scrollChatToBottom(){
+  requestAnimationFrame(() => {
+    const el = document.getElementById('chat-messages');
+    if(el) el.scrollTop = el.scrollHeight;
+  });
+}
+
+async function loadChatMessages(){
+  if(!state.chatTeetimeId) return;
+  try{
+    state.chatMessages = await apiGet('/api/teetimes/' + state.chatTeetimeId + '/messages?userId=' + encodeURIComponent(state.myUserId));
+    render();
+    scrollChatToBottom();
+  }catch(e){
+    console.error(e);
+  }
+}
+
+async function openChat(teetimeId, courseName){
+  state.chatTeetimeId = teetimeId;
+  state.chatCourseName = courseName;
+  state.chatMessages = [];
+  render();
+  await loadChatMessages();
+  if(state.chatPollInterval) clearInterval(state.chatPollInterval);
+  state.chatPollInterval = setInterval(loadChatMessages, 5000);
+}
+
+function closeChat(){
+  if(state.chatPollInterval){
+    clearInterval(state.chatPollInterval);
+    state.chatPollInterval = null;
+  }
+  state.chatTeetimeId = null;
+  render();
+}
+
+async function sendChatMessage(){
+  const input = document.getElementById('chat-input');
+  if(!input) return;
+  const text = input.value.trim();
+  if(!text) return;
+  input.value = '';
+  try{
+    state.chatMessages = await apiPost('/api/teetimes/' + state.chatTeetimeId + '/messages', {
+      userId: state.myUserId, name: state.profile.name, text
+    });
+    render();
+    scrollChatToBottom();
+  }catch(e){
+    showToast('Could not send — try again');
+    console.error(e);
+  }
+}
+
+async function init(){
+  const splashStart = Date.now();
+  const minSplashMs = 1500; // keep the branded splash visible at least this long
+  try{
+    state.myLocation = loadCachedLocation();
+    state.profileList = loadProfileList();
+
+    const { data: sessionData } = await sbAuth.auth.getSession();
+    state.session = sessionData.session;
+
+    if(state.session){
+      state.myUserId = state.session.user.id;
+      try{
+        state.profile = await apiGet('/api/profiles/' + state.myUserId);
+      }catch(e){ state.profile = null; }
+    }
+    // No session: leave myUserId/profile unset. The welcome gate is the
+    // only thing that resolves (or creates) a guest identity now — see
+    // continueAsGuest() — so it's always the first thing anyone without a
+    // session sees, every launch, not just the very first one.
+
+    await loadTeeTimes();
+
+    sbAuth.auth.onAuthStateChange((event, session) => {
+      state.session = session;
+    });
+
+    const elapsed = Date.now() - splashStart;
+    if(elapsed < minSplashMs){
+      await new Promise(r => setTimeout(r, minSplashMs - elapsed));
+    }
+
+    state.loading = false;
+    render();
+  }catch(err){
+    document.getElementById('app').innerHTML = '<div class="loading">Something went wrong loading the app. Try refreshing.</div>';
+    console.error(err);
+  }
+}
+
+async function switchToProfile(userId){
+  state.myUserId = userId;
+  localStorage.setItem('foursome_activeUserId', userId);
+  try{
+    state.profile = await apiGet('/api/profiles/' + userId);
+  }catch(e){ state.profile = null; }
+  state.showSwitcher = false;
+  state.tab = 'discover';
+  state.myCourseRequests = [];
+  state.bookSelectedCourse = null;
+  state.bookCourses = [];
+  state.bookError = '';
+  state.bookSearch = '';
+  await loadTeeTimes();
+  render();
+}
+
+function startNewProfile(){
+  state.myUserId = uid();
+  state.profile = null;
+  state.showSwitcher = false;
+  state.myCourseRequests = [];
+  state.bookSelectedCourse = null;
+  state.bookCourses = [];
+  state.bookError = '';
+  state.bookSearch = '';
+  render();
+}
+
+async function continueAsGuest(){
+  // Reuse this device's existing guest id/profile if there is one (so
+  // resetting past the welcome gate on every launch doesn't orphan a
+  // guest's earlier profile) — otherwise mint a fresh one.
+  let activeId = localStorage.getItem('foursome_activeUserId');
+  if(activeId && !state.profileList.some(p => p.id === activeId)){
+    activeId = null; // stale reference, ignore
+  }
+  if(!activeId && state.profileList.length > 0){
+    activeId = state.profileList[0].id;
+  }
+  state.myUserId = activeId || uid();
+  localStorage.setItem('foursome_activeUserId', state.myUserId);
+  try{
+    state.profile = await apiGet('/api/profiles/' + state.myUserId);
+  }catch(e){ state.profile = null; }
+  state.entryView = 'welcome';
+  state.myCourseRequests = [];
+  state.bookSelectedCourse = null;
+  state.bookCourses = [];
+  state.bookError = '';
+  state.bookSearch = '';
+  render();
+}
+
+// Folds an existing guest's profile/rounds/ratings into the account they
+// just created or signed into. Runs after every successful sign-up/login —
+// a no-op on the backend when there's nothing to move (e.g. this device
+// never had a guest profile, or they're just logging back into an account
+// they already used here before).
+async function handleAuthSuccess(session, previousGuestId){
+  state.session = session;
+  state.myUserId = session.user.id;
+  localStorage.setItem('foursome_activeUserId', state.myUserId);
+  state.entryView = 'welcome';
+  state.authOverlay = null;
+  state.authError = '';
+  state.myCourseRequests = [];
+  state.bookSelectedCourse = null;
+  state.bookCourses = [];
+  state.bookError = '';
+  state.bookSearch = '';
+
+  if(previousGuestId && previousGuestId !== state.myUserId){
+    try{
+      const result = await apiPost('/api/auth/migrate-guest', { guestId: previousGuestId });
+      showToast(result.migrated ? "You're signed in — your guest data was moved to your account" : "You're signed in");
+    }catch(e){
+      console.error('Guest migration failed', e);
+      showToast("You're signed in, but couldn't move your guest data over — try again from Profile");
+    }
+  } else {
+    showToast("You're signed in");
+  }
+
+  try{
+    state.profile = await apiGet('/api/profiles/' + state.myUserId);
+  }catch(e){ state.profile = null; }
+  await loadTeeTimes();
+  render();
+}
+
+async function signUpWithEmail(email, password, previousGuestId){
+  state.authBusy = true; state.authError = ''; render();
+  const { data, error } = await sbAuth.auth.signUp({ email, password });
+  state.authBusy = false;
+  if(error){ state.authError = error.message; render(); return; }
+  if(!data.session){
+    // Email confirmation is on — no session until they click the link.
+    state.entryView = 'login';
+    if(state.authOverlay) state.authOverlay = 'login';
+    showToast('Check your email to confirm your account, then log in.');
+    render();
+    return;
+  }
+  await handleAuthSuccess(data.session, previousGuestId);
+}
+
+async function logInWithEmail(email, password, previousGuestId){
+  state.authBusy = true; state.authError = ''; render();
+  const { data, error } = await sbAuth.auth.signInWithPassword({ email, password });
+  state.authBusy = false;
+  if(error){ state.authError = error.message; render(); return; }
+  await handleAuthSuccess(data.session, previousGuestId);
+}
+
+async function signOut(){
+  await sbAuth.auth.signOut();
+  state.session = null;
+  state.myUserId = null;
+  state.profile = null;
+  state.entryView = 'welcome';
+  state.authOverlay = null;
+  state.tab = 'discover';
+  state.myCourseRequests = [];
+  state.bookSelectedCourse = null;
+  state.bookCourses = [];
+  state.bookError = '';
+  state.bookSearch = '';
+  render();
+}
+
+async function loadTeeTimes(){
+  try{
+    state.teetimes = await apiGet('/api/teetimes');
+  }catch(e){
+    console.error('Failed to load tee times', e);
+    state.teetimes = [];
+  }
+}
+
+async function saveProfile(name, homeCourse, handicap, bio){
+  try{
+    const profile = await apiPost('/api/profiles', { userId: state.myUserId, name, homeCourse, handicap, bio: bio || '' });
+    state.profile = profile;
+    if(!state.profileList.some(p => p.id === state.myUserId)){
+      state.profileList.push({ id: state.myUserId, name });
+      saveProfileList(state.profileList);
+    }
+    localStorage.setItem('foursome_activeUserId', state.myUserId);
+    state.editingProfile = false;
+    showToast('Profile saved');
+    render();
+  }catch(e){
+    showToast('Could not save — try again');
+    console.error(e);
+  }
+}
+
+async function postTeeTime(data){
+  try{
+    await apiPost('/api/teetimes', {
+      hostId: state.myUserId,
+      hostName: state.profile.name,
+      hostIsPro: !!state.profile.isPro,
+      hostHandicap: state.profile.handicap,
+      course: data.course,
+      date: data.date,
+      time: data.time,
+      totalSpots: parseInt(data.spots),
+      hcpRange: data.hcpRange,
+      pace: data.pace,
+      notes: data.notes
+    });
+    showToast('Tee time posted');
+    state.tab = 'myrounds';
+    await loadTeeTimes();
+    render();
+  }catch(e){
+    showToast(e.message || 'Could not post — try again');
+    console.error(e);
+  }
+}
+
+async function requestToJoin(teetimeId){
+  const tt = state.teetimes.find(t => t.id === teetimeId);
+  if(!tt) return;
+  if(tt.requests.some(r => r.userId === state.myUserId)){
+    showToast('You already requested this round');
+    return;
+  }
+  try{
+    await apiPost('/api/teetimes/' + teetimeId + '/request', {
+      userId: state.myUserId, name: state.profile.name, handicap: state.profile.handicap
+    });
+    showToast('Request sent to host');
+    await loadTeeTimes();
+    render();
+  }catch(e){
+    showToast('Could not send request — try again');
+    console.error(e);
+  }
+}
+
+async function respondToRequest(teetimeId, userId, decision){
+  try{
+    await apiPost('/api/teetimes/' + teetimeId + '/respond', { userId, decision });
+    await loadTeeTimes();
+    render();
+  }catch(e){
+    showToast('Could not update — try again');
+    console.error(e);
+  }
+}
+
+async function submitRating(teetimeId, rateeId, stars){
+  try{
+    await apiPost('/api/teetimes/' + teetimeId + '/rate', {
+      raterId: state.myUserId, rateeId, rating: stars, comment: ''
+    });
+    showToast('Rating saved');
+    await loadTeeTimes();
+    render();
+  }catch(e){
+    showToast('Could not save rating — try again');
+    console.error(e);
+  }
+}
+
+function starPickerHtml(teetimeId, rateeId, existingRating){
+  if(existingRating){
+    return `<div class="meta">You rated: ${'★'.repeat(existingRating)}${'☆'.repeat(5-existingRating)}</div>`;
+  }
+  let stars = '';
+  for(let i=1;i<=5;i++){
+    stars += `<span class="star-pick" data-teetime="${teetimeId}" data-ratee="${rateeId}" data-star="${i}" style="cursor:pointer; font-size:17px; margin-right:1px;">☆</span>`;
+  }
+  return `<div class="row" style="align-items:center; margin-top:6px;">${stars}<span style="font-size:11px; opacity:0.55; margin-left:6px;">Tap to rate</span></div>`;
+}
+
+function urlBase64ToUint8Array(base64String){
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for(let i = 0; i < rawData.length; i++){ outputArray[i] = rawData.charCodeAt(i); }
+  return outputArray;
+}
+
+async function enableNotifications(){
+  if(!('serviceWorker' in navigator) || !('PushManager' in window)){
+    showToast('Push notifications are not supported on this browser');
+    return;
+  }
+  try{
+    const reg = await navigator.serviceWorker.register('/sw.js');
+    const perm = await Notification.requestPermission();
+    if(perm !== 'granted'){
+      showToast('Notification permission was not granted');
+      return;
+    }
+    const { publicKey } = await apiGet('/api/vapid-public-key');
+    if(!publicKey){
+      showToast('Push notifications are not configured on the server yet');
+      return;
+    }
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(publicKey)
+    });
+    await apiPost('/api/push/subscribe', { userId: state.myUserId, subscription: sub.toJSON() });
+    localStorage.setItem('foursome_pushEnabled', 'true');
+    showToast('Notifications enabled');
+    render();
+  }catch(e){
+    showToast('Could not enable notifications — try again');
+    console.error(e);
+  }
+}
+
+async function disableNotifications(){
+  try{
+    if('serviceWorker' in navigator){
+      const reg = await navigator.serviceWorker.getRegistration('/sw.js');
+      const sub = reg ? await reg.pushManager.getSubscription() : null;
+      if(sub) await sub.unsubscribe();
+    }
+  }catch(e){
+    console.error('Failed to unsubscribe from push:', e);
+  }
+  // The backend cleans up the now-dead subscription row itself the next
+  // time it tries (and fails) to send to it — no extra API call needed.
+  localStorage.setItem('foursome_pushEnabled', 'false');
+  showToast('Notifications turned off');
+  render();
+}
+
+async function recordView(teetimeId){
+  if(state.viewedThisSession.has(teetimeId)) return;
+  state.viewedThisSession.add(teetimeId);
+  try{
+    await apiPost('/api/teetimes/' + teetimeId + '/view', { userId: state.myUserId });
+  }catch(e){ /* non-critical */ }
+}
+
+async function startCheckout(){
+  try{
+    const data = await apiPost('/api/checkout', {
+      userId: state.myUserId,
+      successUrl: window.location.origin + '/checkout-success',
+      cancelUrl: window.location.origin + '/checkout-cancel'
+    });
+    if(!data.url) throw new Error('No checkout URL returned');
+    window.open(data.url, '_blank');
+    showToast('Complete payment in the new tab, then tap "I\'ve paid" here');
+  }catch(e){
+    showToast('Could not start checkout — try again in a few seconds');
+    console.error(e);
+  }
+}
+
+async function refreshProStatus(){
+  try{
+    const data = await apiGet('/api/pro-status?userId=' + encodeURIComponent(state.myUserId));
+    const wasPro = !!state.profile.isPro;
+    state.profile = Object.assign({}, state.profile, { isPro: data.isPro });
+    if(data.isPro && !wasPro){
+      showToast("Payment confirmed — you're Pro!");
+    } else if(!data.isPro && wasPro){
+      showToast('Subscription cancelled — back to Free plan');
+    } else if(data.isPro){
+      showToast('Still on Pro plan');
+    } else {
+      showToast('No confirmed payment yet. Finish checkout in the other tab, then try again.');
+    }
+    render();
+  }catch(e){
+    showToast('Could not reach the server — try again shortly.');
+    console.error(e);
+  }
+}
+
+async function openBillingPortal(){
+  try{
+    const data = await apiPost('/api/portal', {
+      userId: state.myUserId,
+      returnUrl: window.location.origin
+    });
+    if(!data.url) throw new Error('No portal URL returned');
+    window.open(data.url, '_blank');
+    showToast('Manage or cancel in the new tab, then tap "Refresh status" here');
+  }catch(e){
+    showToast('Could not open subscription management — try again');
+    console.error(e);
+  }
+}
+
+async function changePassword(newPassword, confirmPassword){
+  if(!newPassword || newPassword.length < 6){
+    state.settingsError = 'Password must be at least 6 characters';
+    render();
+    return;
+  }
+  if(newPassword !== confirmPassword){
+    state.settingsError = 'Passwords do not match';
+    render();
+    return;
+  }
+  state.settingsBusy = true; state.settingsError = ''; render();
+  const { error } = await sbAuth.auth.updateUser({ password: newPassword });
+  state.settingsBusy = false;
+  if(error){
+    state.settingsError = error.message;
+    render();
+    return;
+  }
+  showToast('Password updated');
+  state.settingsView = 'main';
+  render();
+}
+
+// Clears everything local (and, for a guest, the only copy that ever
+// existed) after a successful account deletion on the server.
+function clearAllLocalIdentityState(){
+  state.profileList = state.profileList.filter(p => p.id !== state.myUserId);
+  saveProfileList(state.profileList);
+  localStorage.removeItem('foursome_activeUserId');
+  localStorage.removeItem('foursome_pushEnabled');
+  state.myUserId = null;
+  state.profile = null;
+  state.session = null;
+  state.showSettings = false;
+  state.settingsView = 'main';
+  state.editingProfile = false;
+  state.tab = 'discover';
+  state.entryView = 'welcome';
+  state.myCourseRequests = [];
+  state.bookSelectedCourse = null;
+  state.bookCourses = [];
+  state.bookError = '';
+  state.bookSearch = '';
+}
+
+async function deleteAccount(confirmText){
+  if(confirmText !== 'DELETE'){
+    state.settingsError = 'Type DELETE (in capitals) to confirm';
+    render();
+    return;
+  }
+  state.settingsBusy = true; state.settingsError = ''; render();
+  try{
+    await apiDelete('/api/account', { userId: state.myUserId });
+    if(state.session) await sbAuth.auth.signOut();
+    state.settingsBusy = false;
+    clearAllLocalIdentityState();
+    showToast('Account deleted');
+    render();
+  }catch(e){
+    state.settingsBusy = false;
+    state.settingsError = e.message || 'Could not delete account — try again';
+    render();
+  }
+}
+
+// --- Settings --------------------------------------------------------------
+function renderSettingsOverlay(){
+  let body;
+  if(state.settingsView === 'changePassword') body = renderSettingsChangePassword();
+  else if(state.settingsView === 'deleteConfirm') body = renderSettingsDeleteConfirm();
+  else if(state.settingsView === 'help') body = renderSettingsStatic('Help & FAQ', "Common questions will go here. For now, reach out via Contact us and we'll help directly.");
+  else if(state.settingsView === 'contact') body = renderSettingsContact();
+  else if(state.settingsView === 'terms') body = renderSettingsStatic('Terms of Service', 'Placeholder — the real terms will go here before launch.');
+  else if(state.settingsView === 'privacy') body = renderSettingsStatic('Privacy Policy', 'Placeholder — the real privacy policy will go here before launch.');
+  else body = renderSettingsMain();
+
+  return `
+    <div id="settings-overlay" style="position:fixed; inset:0; background:var(--paper); z-index:75; display:flex; flex-direction:column;">
+      <div style="padding: max(14px, env(safe-area-inset-top)) 18px 12px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; flex-shrink:0; background:#fff;">
+        <div style="font-weight:700; font-size:15px;">Settings</div>
+        <div id="settings-close" style="cursor:pointer; font-size:13px; opacity:0.6; padding:6px;">Close</div>
+      </div>
+      <div class="content" style="flex:1; overflow-y:auto;">${body}</div>
+    </div>
+  `;
+}
+
+function renderSettingsMain(){
+  const pushOn = localStorage.getItem('foursome_pushEnabled') === 'true';
+  return `
+    <div class="settings-group-label">ACCOUNT</div>
+    <div class="settings-card">
+      <div class="settings-row" data-settings-nav="editProfile"><span>Edit profile</span><span>›</span></div>
+      ${state.session ? `
+        <div class="settings-row" style="cursor:default;">
+          <span>Signed in as<div class="settings-row-sub">${escapeHtml(state.session.user.email || '')}</div></span>
+        </div>
+        <div class="settings-row" data-settings-nav="changePassword"><span>Change password</span><span>›</span></div>
+        <div class="settings-row danger" data-settings-action="signout"><span>Sign out</span></div>
+      ` : `
+        <div class="settings-row" data-settings-action="signup"><span>Sign up</span></div>
+        <div class="settings-row" data-settings-action="login"><span>Log in</span></div>
+      `}
+    </div>
+
+    <div class="settings-group-label">NOTIFICATIONS</div>
+    <div class="settings-card">
+      <div class="settings-row">
+        <span>Push notifications</span>
+        <button class="btn ${pushOn ? 'btn-primary' : 'btn-ghost'}" data-settings-action="togglePush" style="flex:none; padding:5px 14px; font-size:12px;">${pushOn ? 'On' : 'Off'}</button>
+      </div>
+    </div>
+
+    <div class="settings-group-label">SUPPORT</div>
+    <div class="settings-card">
+      <div class="settings-row" data-settings-nav="help"><span>Help &amp; FAQ</span><span>›</span></div>
+      <div class="settings-row" data-settings-nav="contact"><span>Contact us</span><span>›</span></div>
+      <div class="settings-row" data-settings-nav="terms"><span>Terms of Service</span><span>›</span></div>
+      <div class="settings-row" data-settings-nav="privacy"><span>Privacy Policy</span><span>›</span></div>
+    </div>
+
+    <div class="settings-group-label">DANGER ZONE</div>
+    <div class="settings-card danger">
+      <div class="settings-row danger" data-settings-nav="deleteConfirm"><span>Delete account</span><span>›</span></div>
+    </div>
+  `;
+}
+
+function renderSettingsChangePassword(){
+  return `
+    <h1 class="screen-title">Change password</h1>
+    ${state.settingsError ? `<div class="notes" style="color:var(--flag);">${escapeHtml(state.settingsError)}</div>` : ''}
+    <label>New password</label>
+    <input id="settings-new-password" type="password" placeholder="At least 6 characters" />
+    <label>Confirm new password</label>
+    <input id="settings-confirm-password" type="password" placeholder="Re-enter password" />
+    <div class="form-actions">
+      <button class="btn btn-primary" id="settings-password-save" style="width:100%;" ${state.settingsBusy ? 'disabled' : ''}>${state.settingsBusy ? 'Saving…' : 'Save new password'}</button>
+    </div>
+    <div class="reset-link" data-settings-nav="main">Back</div>
+  `;
+}
+
+function renderSettingsStatic(title, body){
+  return `
+    <h1 class="screen-title">${escapeHtml(title)}</h1>
+    <div class="card"><div class="notes" style="margin-top:0;">${escapeHtml(body)}</div></div>
+    <div class="reset-link" data-settings-nav="main">Back</div>
+  `;
+}
+
+function renderSettingsContact(){
+  return `
+    <h1 class="screen-title">Contact us</h1>
+    <div class="card">
+      <div class="notes" style="margin-top:0;">Have a question or found a bug? Email us and we'll get back to you.</div>
+      <div class="row" style="margin-top:10px;">
+        <a class="btn btn-primary" style="text-decoration:none; text-align:center; display:block;" href="mailto:support@example.com">Email support</a>
+      </div>
+    </div>
+    <div class="reset-link" data-settings-nav="main">Back</div>
+  `;
+}
+
+function renderSettingsDeleteConfirm(){
+  return `
+    <h1 class="screen-title" style="color:var(--flag);">Delete account</h1>
+    <div class="notes" style="margin-top:0;">
+      This permanently deletes your profile, rounds you've hosted (and their chat history), ratings, push subscriptions${state.session ? ', and your login' : ''}. This can't be undone.
+    </div>
+    ${state.settingsError ? `<div class="notes" style="color:var(--flag);">${escapeHtml(state.settingsError)}</div>` : ''}
+    <label>Type DELETE to confirm</label>
+    <input id="settings-delete-confirm" placeholder="DELETE" autocapitalize="characters" />
+    <div class="form-actions">
+      <button class="btn btn-deny" id="settings-delete-submit" style="width:100%;" ${state.settingsBusy ? 'disabled' : ''}>${state.settingsBusy ? 'Deleting…' : 'Permanently delete my account'}</button>
+    </div>
+    <div class="reset-link" data-settings-nav="main">Cancel</div>
+  `;
+}
+
+function attachSettingsHandlers(){
+  document.getElementById('settings-close').addEventListener('click', () => {
+    state.showSettings = false;
+    state.settingsView = 'main';
+    state.settingsError = '';
+    render();
+  });
+
+  document.querySelectorAll('[data-settings-nav]').forEach(el => {
+    el.addEventListener('click', () => {
+      const target = el.dataset.settingsNav;
+      if(target === 'editProfile'){
+        state.showSettings = false;
+        state.editingProfile = true;
+        state.tab = 'profile';
+        render();
+        return;
+      }
+      state.settingsView = target;
+      state.settingsError = '';
+      render();
+    });
+  });
+
+  document.querySelectorAll('[data-settings-action]').forEach(el => {
+    el.addEventListener('click', () => {
+      const action = el.dataset.settingsAction;
+      if(action === 'signout') signOut();
+      else if(action === 'signup'){ state.authOverlay = 'signup'; state.authError = ''; render(); }
+      else if(action === 'login'){ state.authOverlay = 'login'; state.authError = ''; render(); }
+      else if(action === 'togglePush'){
+        const pushOn = localStorage.getItem('foursome_pushEnabled') === 'true';
+        pushOn ? disableNotifications() : enableNotifications();
+      }
+    });
+  });
+
+  if(state.settingsView === 'changePassword'){
+    const saveBtn = document.getElementById('settings-password-save');
+    if(saveBtn) saveBtn.addEventListener('click', () => {
+      const newPw = document.getElementById('settings-new-password').value;
+      const confirmPw = document.getElementById('settings-confirm-password').value;
+      changePassword(newPw, confirmPw);
+    });
+  }
+
+  if(state.settingsView === 'deleteConfirm'){
+    const deleteBtn = document.getElementById('settings-delete-submit');
+    if(deleteBtn) deleteBtn.addEventListener('click', () => {
+      const text = document.getElementById('settings-delete-confirm').value.trim();
+      deleteAccount(text);
+    });
+  }
+}
+
+function render(){
+  const app = document.getElementById('app');
+
+  if(state.loading){
+    app.innerHTML = '<div class="splash"><div class="splash-word">FOUR</div><div class="splash-rule"></div><div class="splash-word">SOME</div></div>';
+    return;
+  }
+
+  if(!state.session && !state.myUserId){
+    app.innerHTML = renderEntryGate();
+    attachEntryGateHandlers();
+    return;
+  }
+
+  if(!state.profile){
+    app.innerHTML = renderOnboarding();
+    attachOnboardingHandlers();
+    return;
+  }
+
+  let body = '';
+  if(state.tab === 'discover') body = renderDiscover();
+  else if(state.tab === 'post') body = renderPost();
+  else if(state.tab === 'myrounds') body = renderMyRounds();
+  else if(state.tab === 'book') body = renderBook();
+  else if(state.tab === 'profile') body = renderProfile();
+
+  app.innerHTML = `
+    <div class="topbar">
+      <svg class="logo-mark" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+        <rect x="4" y="4" width="192" height="192" rx="40" fill="#16281B"/>
+        <text x="100" y="88" font-family="Georgia, 'Times New Roman', serif" font-weight="bold" font-size="38" fill="#F6F3EC" text-anchor="middle" letter-spacing="1">FOUR</text>
+        <line x1="52" y1="100" x2="148" y2="100" stroke="#C9A25C" stroke-width="3"/>
+        <text x="100" y="148" font-family="Georgia, 'Times New Roman', serif" font-weight="bold" font-size="38" fill="#F6F3EC" text-anchor="middle" letter-spacing="1">SOME</text>
+      </svg>
+      <div class="who" id="who-btn">${escapeHtml(state.profile.name)} ▾</div>
+    </div>
+    <div class="content">${body}</div>
+    <div class="navbar">
+      <div class="navitem ${state.tab==='discover'?'active':''}" data-tab="discover">Discover</div>
+      <div class="navitem ${state.tab==='post'?'active':''}" data-tab="post">Post Round</div>
+      <div class="navitem ${state.tab==='myrounds'?'active':''}" data-tab="myrounds">My Rounds</div>
+      <div class="navitem ${state.tab==='book'?'active':''}" data-tab="book">Book</div>
+      <div class="navitem ${state.tab==='profile'?'active':''}" data-tab="profile">Profile</div>
+    </div>
+    ${state.showSwitcher ? renderSwitcher() : ''}
+    ${state.chatTeetimeId ? renderChatOverlay() : ''}
+    ${state.showSettings ? renderSettingsOverlay() : ''}
+    ${state.authOverlay ? renderAuthOverlay() : ''}
+  `;
+
+  document.getElementById('who-btn').addEventListener('click', () => {
+    state.showSwitcher = !state.showSwitcher;
+    render();
+  });
+  if(state.showSwitcher) attachSwitcherHandlers();
+  if(state.chatTeetimeId) attachChatHandlers();
+  if(state.showSettings) attachSettingsHandlers();
+  if(state.authOverlay) attachAuthOverlayHandlers();
+
+  document.querySelectorAll('.navitem').forEach(el => {
+    el.addEventListener('click', async () => {
+      state.tab = el.dataset.tab;
+      if(state.tab === 'book'){
+        await loadMyCourseRequests();
+        await refreshBookCourses();
+      }
+      render();
+    });
+  });
+
+  if(state.tab === 'discover') attachDiscoverHandlers();
+  if(state.tab === 'post') attachPostHandlers();
+  if(state.tab === 'myrounds') attachMyRoundsHandlers();
+  if(state.tab === 'book') attachBookHandlers();
+  if(state.tab === 'profile') attachProfileHandlers();
+}
+
+function renderSwitcher(){
+  return `
+    <div id="switcher-overlay" style="position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:60; display:flex; align-items:flex-end; justify-content:center;">
+      <div style="background:#fff; width:100%; max-width:420px; border-radius:18px 18px 0 0; padding:18px 20px calc(26px + env(safe-area-inset-bottom)); max-height:70vh; overflow-y:auto;">
+        <div style="font-size:12px; font-weight:700; opacity:0.5; margin-bottom:10px;">TEST PROFILES ON THIS DEVICE</div>
+        ${state.profileList.map(p => `
+          <div class="request-row" style="padding:10px 0;">
+            <span>${escapeHtml(p.name)}${p.id === state.myUserId ? ' (active)' : ''}</span>
+            ${p.id === state.myUserId ? '' : `<button class="btn btn-ghost" style="flex:none; padding:6px 12px; font-size:12px;" data-switch="${p.id}">Switch to</button>`}
+          </div>
+        `).join('')}
+        <button class="btn btn-primary" id="switcher-new" style="width:100%; margin-top:16px;">+ Create new test profile</button>
+        <div style="text-align:center; font-size:11px; opacity:0.45; margin-top:14px; cursor:pointer;" id="switcher-close">Close</div>
+      </div>
+    </div>
+  `;
+}
+
+function attachSwitcherHandlers(){
+  document.querySelectorAll('[data-switch]').forEach(btn => {
+    btn.addEventListener('click', () => switchToProfile(btn.dataset.switch));
+  });
+  const newBtn = document.getElementById('switcher-new');
+  if(newBtn) newBtn.addEventListener('click', startNewProfile);
+  const closeBtn = document.getElementById('switcher-close');
+  if(closeBtn) closeBtn.addEventListener('click', () => { state.showSwitcher = false; render(); });
+}
+
+function renderChatOverlay(){
+  return `
+    <div id="chat-overlay" style="position:fixed; inset:0; background:var(--paper); z-index:70; display:flex; flex-direction:column;">
+      <div style="padding: max(14px, env(safe-area-inset-top)) 18px 12px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; flex-shrink:0; background:#fff;">
+        <div>
+          <div style="font-weight:700; font-size:15px;">${escapeHtml(state.chatCourseName)}</div>
+          <div style="font-size:11px; opacity:0.55;">Round chat</div>
+        </div>
+        <div id="chat-close" style="cursor:pointer; font-size:13px; opacity:0.6; padding:6px;">Close</div>
+      </div>
+      <div id="chat-messages" style="flex:1; overflow-y:auto; padding:14px 18px;">
+        ${state.chatMessages.length === 0 ? '<div class="empty">No messages yet. Say hi 👋</div>' : state.chatMessages.map(m => {
+          const isMe = m.senderId === state.myUserId;
+          return `
+            <div style="margin-bottom:10px; display:flex; flex-direction:column; align-items:${isMe ? 'flex-end' : 'flex-start'};">
+              ${!isMe ? `<div style="font-size:11px; opacity:0.5; margin-bottom:2px;">${escapeHtml(m.senderName)}</div>` : ''}
+              <div style="max-width:75%; padding:9px 13px; border-radius:14px; background:${isMe ? 'var(--fairway)' : '#fff'}; color:${isMe ? '#fff' : 'var(--ink)'}; border:${isMe ? 'none' : '1px solid var(--line)'}; font-size:13.5px; word-wrap:break-word;">${escapeHtml(m.text)}</div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+      <div style="display:flex; gap:8px; padding:10px 14px; padding-bottom:max(10px, env(safe-area-inset-bottom)); border-top:1px solid var(--line); background:#fff; flex-shrink:0;">
+        <input id="chat-input" placeholder="Message..." style="flex:1; margin:0;" />
+        <button id="chat-send" class="btn btn-primary" style="flex:none; padding:10px 18px;">Send</button>
+      </div>
+    </div>
+  `;
+}
+
+function attachChatHandlers(){
+  const closeBtn = document.getElementById('chat-close');
+  if(closeBtn) closeBtn.addEventListener('click', closeChat);
+  const sendBtn = document.getElementById('chat-send');
+  if(sendBtn) sendBtn.addEventListener('click', sendChatMessage);
+  const input = document.getElementById('chat-input');
+  if(input) input.addEventListener('keydown', e => { if(e.key === 'Enter') sendChatMessage(); });
+  scrollChatToBottom();
+}
+
+// Shared by the pre-profile welcome gate and the in-app "create an
+// account" overlay — both just render this into their own wrapper and
+// wire it up with attachAuthFormHandlers(mode, { context }).
+function authFormFieldsHtml(mode, idPrefix){
+  const heading = mode === 'signup' ? 'Create your account' : 'Log in';
+  const switchLabel = mode === 'signup' ? 'Already have an account? Log in' : "Don't have an account? Sign up";
+  return `
+    <h1 class="screen-title">${heading}</h1>
+    ${state.authError ? `<div class="notes" style="color:var(--flag);">${escapeHtml(state.authError)}</div>` : ''}
+    <label>Email</label>
+    <input id="${idPrefix}-email" type="email" autocomplete="email" placeholder="you@example.com" />
+    <label>Password</label>
+    <input id="${idPrefix}-password" type="password" autocomplete="${mode === 'signup' ? 'new-password' : 'current-password'}" placeholder="At least 6 characters" />
+    <div class="form-actions">
+      <button class="btn btn-primary" id="${idPrefix}-submit" style="width:100%;" ${state.authBusy ? 'disabled' : ''}>${state.authBusy ? 'Please wait…' : heading}</button>
+    </div>
+    <div class="reset-link" id="${idPrefix}-switch">${switchLabel}</div>
+  `;
+}
+
+function attachAuthFormHandlers(mode, opts){
+  const idPrefix = opts.context === 'entry' ? 'entry-auth' : 'overlay-auth';
+  const emailEl = document.getElementById(idPrefix + '-email');
+  const passwordEl = document.getElementById(idPrefix + '-password');
+  const submitBtn = document.getElementById(idPrefix + '-submit');
+  const switchLink = document.getElementById(idPrefix + '-switch');
+
+  submitBtn.addEventListener('click', async () => {
+    const email = emailEl.value.trim();
+    const password = passwordEl.value;
+    if(!email || !password){
+      state.authError = 'Email and password are required';
+      render();
+      return;
+    }
+    // The guest id being upgraded, if any: null for a brand new visitor at
+    // the entry gate, or the guest's current id when this is opened from
+    // Profile after they've already been using the app.
+    const previousGuestId = state.myUserId || null;
+    if(mode === 'signup') await signUpWithEmail(email, password, previousGuestId);
+    else await logInWithEmail(email, password, previousGuestId);
+  });
+
+  switchLink.addEventListener('click', () => {
+    const nextMode = mode === 'signup' ? 'login' : 'signup';
+    state.authError = '';
+    if(opts.context === 'entry') state.entryView = nextMode;
+    else state.authOverlay = nextMode;
+    render();
+  });
+
+  if(opts.context === 'entry'){
+    const backLink = document.getElementById('entry-auth-back');
+    if(backLink) backLink.addEventListener('click', () => { state.entryView = 'welcome'; state.authError = ''; render(); });
+  }
+}
+
+function renderEntryGate(){
+  if(state.entryView === 'signup' || state.entryView === 'login'){
+    return `
+      <div class="content" style="padding-top: calc(60px + env(safe-area-inset-top));">
+        ${authFormFieldsHtml(state.entryView, 'entry-auth')}
+        <div class="reset-link" id="entry-auth-back" style="margin-top:8px;">Back</div>
+      </div>
+    `;
+  }
+  return `
+    <div class="content" style="padding-top: calc(60px + env(safe-area-inset-top)); text-align:center;">
+      <svg style="width:100px; height:100px; border-radius:20px;" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+        <rect x="4" y="4" width="192" height="192" rx="40" fill="#16281B"/>
+        <text x="100" y="88" font-family="Georgia, 'Times New Roman', serif" font-weight="bold" font-size="38" fill="#F6F3EC" text-anchor="middle" letter-spacing="1">FOUR</text>
+        <line x1="52" y1="100" x2="148" y2="100" stroke="#C9A25C" stroke-width="3"/>
+        <text x="100" y="148" font-family="Georgia, 'Times New Roman', serif" font-weight="bold" font-size="38" fill="#F6F3EC" text-anchor="middle" letter-spacing="1">SOME</text>
+      </svg>
+      <h1 class="screen-title" style="margin-top:20px;">Welcome</h1>
+      <p style="font-size:13px; opacity:0.65; margin-top:-8px;">Create an account to keep your profile and rounds across devices, or jump straight in as a guest.</p>
+      <div class="form-actions" style="margin-top:28px;">
+        <button class="btn btn-primary" id="entry-signup" style="width:100%; margin-bottom:10px;">Sign up</button>
+        <button class="btn btn-ghost" id="entry-login" style="width:100%; margin-bottom:10px;">Log in</button>
+        <button class="btn btn-ghost" id="entry-guest" style="width:100%;">Continue as guest</button>
+      </div>
+    </div>
+  `;
+}
+
+function attachEntryGateHandlers(){
+  if(state.entryView === 'signup' || state.entryView === 'login'){
+    attachAuthFormHandlers(state.entryView, { context: 'entry' });
+    return;
+  }
+  document.getElementById('entry-signup').addEventListener('click', () => { state.entryView = 'signup'; state.authError = ''; render(); });
+  document.getElementById('entry-login').addEventListener('click', () => { state.entryView = 'login'; state.authError = ''; render(); });
+  document.getElementById('entry-guest').addEventListener('click', continueAsGuest);
+}
+
+function renderAuthOverlay(){
+  return `
+    <div id="auth-overlay" style="position:fixed; inset:0; background:var(--paper); z-index:80; display:flex; flex-direction:column;">
+      <div style="padding: max(14px, env(safe-area-inset-top)) 18px 12px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; flex-shrink:0; background:#fff;">
+        <div style="font-weight:700; font-size:15px;">Account</div>
+        <div id="overlay-auth-close" style="cursor:pointer; font-size:13px; opacity:0.6; padding:6px;">Close</div>
+      </div>
+      <div class="content" style="flex:1; overflow-y:auto;">
+        ${authFormFieldsHtml(state.authOverlay, 'overlay-auth')}
+      </div>
+    </div>
+  `;
+}
+
+function attachAuthOverlayHandlers(){
+  attachAuthFormHandlers(state.authOverlay, { context: 'overlay' });
+  document.getElementById('overlay-auth-close').addEventListener('click', () => {
+    state.authOverlay = null;
+    state.authError = '';
+    render();
+  });
+}
+
+function renderOnboarding(){
+  return `
+    <div class="content" style="padding-top: calc(60px + env(safe-area-inset-top));">
+      <div style="text-align:center; margin-bottom:24px;">
+        <svg style="width:100px; height:100px; border-radius:20px;" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+          <rect x="4" y="4" width="192" height="192" rx="40" fill="#16281B"/>
+          <text x="100" y="88" font-family="Georgia, 'Times New Roman', serif" font-weight="bold" font-size="38" fill="#F6F3EC" text-anchor="middle" letter-spacing="1">FOUR</text>
+          <line x1="52" y1="100" x2="148" y2="100" stroke="#C9A25C" stroke-width="3"/>
+          <text x="100" y="148" font-family="Georgia, 'Times New Roman', serif" font-weight="bold" font-size="38" fill="#F6F3EC" text-anchor="middle" letter-spacing="1">SOME</text>
+        </svg>
+      </div>
+      <h1 class="screen-title" style="text-align:center;">Set up your profile</h1>
+      <p style="font-size:13px; opacity:0.65; margin-top:-8px; text-align:center;">This is what other golfers will see before they play with you.</p>
+      <label>Your name</label>
+      <input id="ob-name" placeholder="e.g. Alex Nguyen" />
+      <label>Home course</label>
+      <input id="ob-course" placeholder="e.g. Cranbury Golf Club" />
+      <label>Handicap</label>
+      <input id="ob-hcp" type="number" step="0.1" placeholder="e.g. 14.2" />
+      <label>Short bio (optional)</label>
+      <textarea id="ob-bio" placeholder="e.g. Relaxed pace, always up for a rain check"></textarea>
+      <div class="form-actions">
+        <button class="btn btn-primary" id="ob-save" style="width:100%;">Save profile</button>
+      </div>
+    </div>
+  `;
+}
+
+function attachOnboardingHandlers(){
+  document.getElementById('ob-save').addEventListener('click', async () => {
+    const name = document.getElementById('ob-name').value.trim();
+    const course = document.getElementById('ob-course').value.trim();
+    const hcp = document.getElementById('ob-hcp').value.trim();
+    const bio = document.getElementById('ob-bio').value.trim();
+    if(!name || !course || hcp === ''){
+      showToast('Fill in all three fields');
+      return;
+    }
+    await saveProfile(name, course, hcp, bio);
+  });
+}
+
+function renderDiscover(){
+  let open = state.teetimes.filter(t => t.hostId !== state.myUserId && t.openSpots > 0 && t.status !== 'cancelled');
+
+  if(state.filters.courseSearch){
+    const term = state.filters.courseSearch.toLowerCase();
+    open = open.filter(t => t.course.toLowerCase().includes(term));
+  }
+  if(state.filters.dateFilter){
+    open = open.filter(t => t.date === state.filters.dateFilter);
+  }
+  if(state.filters.pace){
+    open = open.filter(t => t.pace === state.filters.pace);
+  }
+  if(state.filters.maxDistance && state.myLocation){
+    const maxMiles = parseFloat(state.filters.maxDistance);
+    open = open.filter(t => {
+      if(t.lat == null || t.lng == null) return true; // unknown distance, don't hide it
+      return distanceMiles(state.myLocation.lat, state.myLocation.lng, t.lat, t.lng) <= maxMiles;
+    });
+  }
+
+  open.sort((a,b) => {
+    if(state.myLocation && a.lat != null && b.lat != null){
+      const da = distanceMiles(state.myLocation.lat, state.myLocation.lng, a.lat, a.lng);
+      const db = distanceMiles(state.myLocation.lat, state.myLocation.lng, b.lat, b.lng);
+      return da - db;
+    }
+    return (b.createdAt||0) - (a.createdAt||0);
+  });
+
+  const searchBar = `
+    <div class="card" style="padding:10px 14px;">
+      <label style="margin:0 0 5px;">Search by course</label>
+      <input id="filter-course-search" placeholder="e.g. Trenton" value="${escapeHtml(state.filters.courseSearch)}" />
+      <label style="margin-top:10px;">Date</label>
+      <input id="filter-date" type="date" value="${escapeHtml(state.filters.dateFilter)}" />
+      ${(state.filters.courseSearch || state.filters.dateFilter) ? `<div class="reset-link" id="clear-search-filters" style="margin-top:8px;">Clear search filters</div>` : ''}
+    </div>
+  `;
+
+  const locationBanner = !state.myLocation ? `
+    <div class="card" style="padding:10px 14px; display:flex; justify-content:space-between; align-items:center;">
+      <div class="meta" style="opacity:0.75;">Turn on location to see how far each round is.</div>
+      <button class="btn btn-primary" id="use-location-btn" style="flex:none; padding:6px 12px; font-size:12px;">Use my location</button>
+    </div>
+  ` : '';
+
+  const filterBar = `
+    <div class="card" style="padding:10px 14px;">
+      <label style="margin:0 0 5px;">Pace preference</label>
+      <select id="filter-pace">
+        <option value="">Any pace</option>
+        <option value="Casual" ${state.filters.pace==='Casual'?'selected':''}>Casual</option>
+        <option value="Competitive" ${state.filters.pace==='Competitive'?'selected':''}>Competitive</option>
+        <option value="Either" ${state.filters.pace==='Either'?'selected':''}>Either</option>
+      </select>
+      ${state.myLocation ? `
+        <label style="margin-top:10px;">Max distance</label>
+        <select id="filter-distance">
+          <option value="">Any distance</option>
+          <option value="5" ${state.filters.maxDistance==='5'?'selected':''}>Within 5 mi</option>
+          <option value="10" ${state.filters.maxDistance==='10'?'selected':''}>Within 10 mi</option>
+          <option value="25" ${state.filters.maxDistance==='25'?'selected':''}>Within 25 mi</option>
+          <option value="50" ${state.filters.maxDistance==='50'?'selected':''}>Within 50 mi</option>
+        </select>
+      ` : ''}
+    </div>
+  `;
+
+  if(open.length === 0){
+    return `<h1 class="screen-title">Find a group</h1><div class="meta" style="margin:-8px 0 14px;">Rounds posted by real golfers — not live course availability.</div>${searchBar}${locationBanner}${filterBar}<div class="empty">No open rounds match right now.<br>Try Post Round, or check back later.</div>`;
+  }
+
+  return `
+    <h1 class="screen-title">Find a group</h1>
+    <div class="meta" style="margin:-8px 0 14px;">Rounds posted by real golfers — not live course availability.</div>
+    ${searchBar}
+    ${locationBanner}
+    ${filterBar}
+    ${open.map(t => {
+      const myReq = t.requests.find(r => r.userId === state.myUserId);
+      let actionHtml;
+      if(myReq){
+        const label = myReq.status === 'pending' ? 'Request sent' : (myReq.status === 'approved' ? "You're in!" : 'Declined');
+        actionHtml = `<div class="row"><button class="btn btn-ghost" disabled>${label}</button></div>`;
+      } else {
+        actionHtml = `<div class="row"><button class="btn btn-primary" data-request="${t.id}">Request to join</button></div>`;
+      }
+      const hostStatLine = (t.hostHandicap != null)
+        ? `<div class="meta">Host handicap: ${escapeHtml(String(t.hostHandicap))} · ${roundsHostedBy(t.hostId)} round${roundsHostedBy(t.hostId)===1?'':'s'} hosted</div>`
+        : '';
+      const distanceLine = (state.myLocation && t.lat != null && t.lng != null)
+        ? `<div class="meta">${distanceMiles(state.myLocation.lat, state.myLocation.lng, t.lat, t.lng).toFixed(1)} mi away</div>`
+        : '';
+      const ratingBadge = t.hostRatingCount > 0
+        ? ` · ★${t.hostAvgRating} (${t.hostRatingCount})`
+        : '';
+      return `
+        <div class="card" data-view="${t.id}">
+          <div class="card-top">
+            <div class="course-name">${escapeHtml(t.course)}</div>
+            <div class="hcp">${escapeHtml(t.hcpRange || 'Any HCP')}</div>
+          </div>
+          <div class="meta">${escapeHtml(t.date)} · ${escapeHtml(t.time)} · ${t.openSpots} of ${t.totalSpots} spots open</div>
+          ${distanceLine}
+          <div class="meta">Hosted by ${escapeHtml(t.hostName)}${ratingBadge}${t.hostIsPro ? ' <span class="pill" style="border-color:var(--fairway); color:var(--fairway); font-weight:700;">PRO</span>' : ''}${t.pace ? ' · ' + escapeHtml(t.pace) + ' pace' : ''}</div>
+          ${hostStatLine}
+          ${t.notes ? `<div class="notes">${escapeHtml(t.notes)}</div>` : ''}
+          ${actionHtml}
+        </div>
+      `;
+    }).join('')}
+  `;
+}
+
+function attachDiscoverHandlers(){
+  document.querySelectorAll('[data-request]').forEach(btn => {
+    btn.addEventListener('click', () => requestToJoin(btn.dataset.request));
+  });
+  const searchInput = document.getElementById('filter-course-search');
+  if(searchInput){
+    searchInput.addEventListener('input', () => {
+      state.filters.courseSearch = searchInput.value;
+      render();
+    });
+    searchInput.addEventListener('focus', () => { state.discoverSearchFocused = true; });
+    searchInput.addEventListener('blur', () => { state.discoverSearchFocused = false; });
+    if(state.discoverSearchFocused){
+      searchInput.focus();
+      const pos = searchInput.value.length;
+      searchInput.setSelectionRange(pos, pos);
+    }
+  }
+  const dateInput = document.getElementById('filter-date');
+  if(dateInput){
+    dateInput.addEventListener('change', () => { state.filters.dateFilter = dateInput.value; render(); });
+  }
+  const clearSearchBtn = document.getElementById('clear-search-filters');
+  if(clearSearchBtn){
+    clearSearchBtn.addEventListener('click', () => {
+      state.filters.courseSearch = '';
+      state.filters.dateFilter = '';
+      render();
+    });
+  }
+  const paceSelect = document.getElementById('filter-pace');
+  if(paceSelect){
+    paceSelect.addEventListener('change', () => { state.filters.pace = paceSelect.value; render(); });
+  }
+  const distanceSelect = document.getElementById('filter-distance');
+  if(distanceSelect){
+    distanceSelect.addEventListener('change', () => { state.filters.maxDistance = distanceSelect.value; render(); });
+  }
+  const locationBtn = document.getElementById('use-location-btn');
+  if(locationBtn){
+    locationBtn.addEventListener('click', requestLocation);
+  }
+  const viewTargets = document.querySelectorAll('[data-view]');
+  (async () => {
+    for(const el of viewTargets){ await recordView(el.dataset.view); }
+  })();
+}
+
+function renderPost(){
+  return `
+    <h1 class="screen-title">Post your round</h1>
+    <p style="font-size:13px; opacity:0.65; margin-top:-8px;">Already have a tee time booked? Post it here so other golfers can join you.</p>
+    <label>Course</label>
+    <input id="pt-course" placeholder="e.g. Trenton Country Club" />
+    <label>Date</label>
+    <input id="pt-date" type="date" />
+    <label>Time</label>
+    <input id="pt-time" type="time" />
+    <label>Total spots in the group</label>
+    <select id="pt-spots">
+      <option value="2">2</option>
+      <option value="3">3</option>
+      <option value="4" selected>4</option>
+    </select>
+    <label>Handicap range welcome (optional)</label>
+    <input id="pt-hcp" placeholder="e.g. 0-20, or Any" />
+    <label>Pace</label>
+    <select id="pt-pace">
+      <option value="Either" selected>Either</option>
+      <option value="Casual">Casual</option>
+      <option value="Competitive">Competitive</option>
+    </select>
+    <label>Notes (optional)</label>
+    <textarea id="pt-notes" placeholder="Casual pace, walking, happy to play with anyone..."></textarea>
+    <div class="form-actions">
+      <button class="btn btn-primary" id="pt-save" style="width:100%;">Post round</button>
+    </div>
+  `;
+}
+
+function attachPostHandlers(){
+  const saveBtn = document.getElementById('pt-save');
+  if(saveBtn){
+    saveBtn.addEventListener('click', () => {
+      const course = document.getElementById('pt-course').value.trim();
+      const date = document.getElementById('pt-date').value;
+      const time = document.getElementById('pt-time').value;
+      const spots = document.getElementById('pt-spots').value;
+      const hcpRange = document.getElementById('pt-hcp').value.trim();
+      const pace = document.getElementById('pt-pace').value;
+      const notes = document.getElementById('pt-notes').value.trim();
+      if(!course || !date || !time){
+        showToast('Course, date and time are required');
+        return;
+      }
+      postTeeTime({ course, date, time, spots, hcpRange, pace, notes });
+    });
+  }
+}
+
+function renderMyRounds(){
+  const hosted = state.teetimes.filter(t => t.hostId === state.myUserId && t.status !== 'cancelled');
+  const joined = state.teetimes.filter(t => t.hostId !== state.myUserId && t.status !== 'cancelled' && t.requests.some(r => r.userId === state.myUserId));
+
+  let html = '<h1 class="screen-title">My rounds</h1>';
+  html += '<div style="font-size:12px; font-weight:700; opacity:0.55; margin-bottom:8px;">HOSTING</div>';
+
+  if(hosted.length === 0){
+    html += "<div class=\"empty\" style=\"padding:20px 10px;\">You haven't posted a round yet.</div>";
+  } else {
+    html += hosted.map(t => {
+      const viewerCount = (t.viewedBy || []).length;
+      const viewerLine = `<div class="meta">${viewerCount} golfer${viewerCount===1?'':'s'} viewed this round</div>`;
+      return `
+      <div class="card">
+        <div class="card-top">
+          <div class="course-name">${escapeHtml(t.course)}</div>
+          <div class="hcp">${t.openSpots}/${t.totalSpots} open</div>
+        </div>
+        <div class="meta">${escapeHtml(t.date)} · ${escapeHtml(t.time)}</div>
+        ${viewerLine}
+        <div class="row">
+          <button class="btn btn-ghost" style="padding:7px 10px; font-size:12px;" data-chat-open="${t.id}">Chat</button>
+          <button class="btn btn-deny" style="padding:7px 10px; font-size:12px;" data-cancel="${t.id}">Cancel round</button>
+        </div>
+        ${t.requests.length === 0 ? '<div class="notes">No requests yet.</div>' :
+          t.requests.map(r => {
+            const hcpDisplay = `${escapeHtml(String(r.handicap))} HCP · ${confirmedRoundsFor(r.userId)} confirmed round${confirmedRoundsFor(r.userId)===1?'':'s'}`;
+            const myRatingOfThem = t.ratings.find(rt => rt.raterId === state.myUserId && rt.rateeId === r.userId);
+            return `
+            <div class="request-row" style="flex-wrap:wrap;">
+              <span>${escapeHtml(r.name)} · ${hcpDisplay}</span>
+              ${r.status === 'pending' ?
+                `<span>
+                  <button class="btn btn-primary" style="padding:5px 10px; font-size:11px; margin-right:4px;" data-approve="${t.id}|${r.userId}">Approve</button>
+                  <button class="btn btn-deny" style="padding:5px 10px; font-size:11px;" data-deny="${t.id}|${r.userId}">Deny</button>
+                </span>` :
+                `<span class="status-tag status-${r.status}">${r.status}</span>`
+              }
+              ${r.status === 'approved' ? `<div style="width:100%;">${starPickerHtml(t.id, r.userId, myRatingOfThem ? myRatingOfThem.rating : null)}</div>` : ''}
+            </div>
+          `;}).join('')
+        }
+      </div>
+    `;}).join('');
+  }
+
+  html += '<div style="font-size:12px; font-weight:700; opacity:0.55; margin:18px 0 8px;">REQUESTED TO JOIN</div>';
+  if(joined.length === 0){
+    html += '<div class="empty" style="padding:20px 10px;">No pending requests. Browse Discover to find a round.</div>';
+  } else {
+    html += joined.map(t => {
+      const myReq = t.requests.find(r => r.userId === state.myUserId);
+      const myRatingOfHost = t.ratings.find(rt => rt.raterId === state.myUserId && rt.rateeId === t.hostId);
+      return `
+        <div class="card">
+          <div class="card-top">
+            <div class="course-name">${escapeHtml(t.course)}</div>
+            <span class="status-tag status-${myReq.status}">${myReq.status}</span>
+          </div>
+          <div class="meta">${escapeHtml(t.date)} · ${escapeHtml(t.time)} · hosted by ${escapeHtml(t.hostName)}</div>
+          ${myReq.status === 'approved' ? `<div class="row"><button class="btn btn-ghost" style="padding:7px 10px; font-size:12px;" data-chat-open="${t.id}">Chat</button></div>` : ''}
+          ${myReq.status === 'approved' ? starPickerHtml(t.id, t.hostId, myRatingOfHost ? myRatingOfHost.rating : null) : ''}
+        </div>
+      `;
+    }).join('');
+  }
+  return html;
+}
+
+function attachMyRoundsHandlers(){
+  document.querySelectorAll('[data-approve]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const [ttId, userId] = btn.dataset.approve.split('|');
+      respondToRequest(ttId, userId, 'approved');
+    });
+  });
+  document.querySelectorAll('[data-deny]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const [ttId, userId] = btn.dataset.deny.split('|');
+      respondToRequest(ttId, userId, 'denied');
+    });
+  });
+  document.querySelectorAll('[data-star]').forEach(el => {
+    el.addEventListener('click', () => {
+      submitRating(el.dataset.teetime, el.dataset.ratee, parseInt(el.dataset.star));
+    });
+  });
+  document.querySelectorAll('[data-chat-open]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tt = state.teetimes.find(t => t.id === btn.dataset.chatOpen);
+      if(tt) openChat(tt.id, tt.course);
+    });
+  });
+  document.querySelectorAll('[data-cancel]').forEach(btn => {
+    btn.addEventListener('click', () => cancelRound(btn.dataset.cancel));
+  });
+}
+
+// --- Book a Tee Time (course request / waitlist) --------------------------
+async function loadMyCourseRequests(){
+  try{
+    const data = await apiGet('/api/course-requests/mine?userId=' + encodeURIComponent(state.myUserId));
+    state.myCourseRequests = data.requests || [];
+  }catch(e){
+    console.error('Failed to load course requests', e);
+  }
+}
+
+async function requestCourse(){
+  const course = state.bookSelectedCourse;
+  if(!course) return;
+  const dateInput = document.getElementById('book-date');
+  const timeInput = document.getElementById('book-time');
+  const preferredDate = dateInput ? dateInput.value : '';
+  const preferredTime = timeInput ? timeInput.value : '';
+  state.bookRequestBusy = true; render();
+  try{
+    const result = await apiPost('/api/course-requests', {
+      userId: state.myUserId, courseName: course,
+      preferredDate: preferredDate || null, preferredTime: preferredTime || null
+    });
+    if(result.request) state.myCourseRequests.unshift(result.request);
+    state.bookRequestBusy = false;
+    state.bookSelectedCourse = null;
+    showToast("Thanks — we'll let you know if this course gets added!");
+    render();
+  }catch(e){
+    state.bookRequestBusy = false;
+    showToast('Could not send your request — try again');
+    console.error(e);
+    render();
+  }
+}
+
+async function cancelCourseRequest(id){
+  try{
+    await apiDelete('/api/course-requests/' + id, { userId: state.myUserId });
+    state.myCourseRequests = state.myCourseRequests.filter(r => String(r.id) !== String(id));
+    showToast('Request cancelled');
+    render();
+  }catch(e){
+    showToast('Could not cancel — try again');
+    console.error(e);
+  }
+}
+
+// Live course search against our backend, which itself queries OpenStreetMap
+// (Overpass for nearby, Nominatim for name search — see server.js for why
+// they're split that way). A search term always works regardless of
+// location; with no search term, location decides what shows at all
+// (nothing until it's granted, then just what's nearby) — distance sort
+// applies whenever location is available, search or not.
+async function loadNearbyBookCourses(){
+  if(!state.myLocation){ state.bookCourses = []; render(); return; }
+  state.bookLoading = true; state.bookError = ''; render();
+  try{
+    const data = await apiGet('/api/golf-courses/nearby?lat=' + state.myLocation.lat + '&lng=' + state.myLocation.lng);
+    state.bookCourses = data.courses || [];
+  }catch(e){
+    state.bookError = "Couldn't load nearby courses — try again in a bit.";
+    state.bookCourses = [];
+    console.error(e);
+  }
+  state.bookLoading = false;
+  render();
+}
+
+async function searchBookCourses(term){
+  state.bookLoading = true; state.bookError = ''; render();
+  try{
+    const data = await apiGet('/api/golf-courses/search?q=' + encodeURIComponent(term));
+    state.bookCourses = data.courses || [];
+  }catch(e){
+    state.bookError = "Couldn't search courses — try again in a bit.";
+    state.bookCourses = [];
+    console.error(e);
+  }
+  state.bookLoading = false;
+  render();
+}
+
+// Decides which of the two above to run (or neither) based on current
+// search text and location — the single place that owns that decision, so
+// it can be called from tab-entry, from the debounced search box, and
+// after "Use my location" succeeds, without duplicating the logic.
+async function refreshBookCourses(){
+  const term = state.bookSearch.trim();
+  if(term.length >= 3){
+    await searchBookCourses(term);
+  } else if(state.myLocation){
+    await loadNearbyBookCourses();
+  } else {
+    state.bookCourses = [];
+    state.bookError = '';
+    render();
+  }
+}
+
+function renderBook(){
+  if(state.bookSelectedCourse) return renderBookCourseDetail(state.bookSelectedCourse);
+
+  const term = state.bookSearch.trim();
+  let courses = state.bookCourses;
+  if(state.myLocation){
+    courses = [...courses].sort((a,b) =>
+      distanceMiles(state.myLocation.lat, state.myLocation.lng, a.lat, a.lng) -
+      distanceMiles(state.myLocation.lat, state.myLocation.lng, b.lat, b.lng)
+    );
+  }
+  const requestedCourseNames = state.myCourseRequests.map(r => r.courseName);
+
+  const myRequestsSection = state.myCourseRequests.length > 0 ? `
+    <div style="font-size:12px; font-weight:700; opacity:0.55; margin-bottom:8px;">YOUR REQUESTS</div>
+    ${state.myCourseRequests.map(r => `
+      <div class="card">
+        <div class="card-top">
+          <div class="course-name">${escapeHtml(r.courseName)}</div>
+          <button class="btn btn-deny" style="flex:none; padding:5px 10px; font-size:11px;" data-cancel-request="${r.id}">Cancel</button>
+        </div>
+        <div class="meta">${r.preferredDate ? escapeHtml(r.preferredDate) : 'Any date'} · ${r.preferredTime ? escapeHtml(r.preferredTime) : 'Any time'}</div>
+      </div>
+    `).join('')}
+    <div style="font-size:12px; font-weight:700; opacity:0.55; margin:18px 0 8px;">FIND A COURSE</div>
+  ` : '';
+
+  let body;
+  if(state.bookLoading){
+    body = '<div class="loading">Searching courses…</div>';
+  } else if(state.bookError){
+    body = `<div class="empty">${escapeHtml(state.bookError)}</div>`;
+  } else if(courses.length === 0){
+    if(!term && !state.myLocation){
+      body = `
+        <div class="card" style="padding:10px 14px; display:flex; justify-content:space-between; align-items:center;">
+          <div class="meta" style="opacity:0.75;">Turn on location to see nearby courses, or search for one.</div>
+          <button class="btn btn-primary" id="book-use-location-btn" style="flex:none; padding:6px 12px; font-size:12px;">Use my location</button>
+        </div>
+      `;
+    } else {
+      body = `<div class="empty">${term ? 'No courses match your search.' : 'No courses found nearby — try searching by name.'}</div>`;
+    }
+  } else {
+    body = courses.map(c => {
+      const already = requestedCourseNames.includes(c.name);
+      const distanceLine = state.myLocation
+        ? `<div class="meta">${distanceMiles(state.myLocation.lat, state.myLocation.lng, c.lat, c.lng).toFixed(1)} mi away</div>`
+        : '';
+      return `
+        <div class="card" data-select-course="${escapeHtml(c.name)}" style="cursor:pointer;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span class="course-name">${escapeHtml(c.name)}</span>
+            ${already ? '<span class="pill" style="border-color:var(--turf); color:var(--turf); font-weight:700;">Requested</span>' : '<span style="opacity:0.35;">›</span>'}
+          </div>
+          ${distanceLine}
+        </div>
+      `;
+    }).join('');
+  }
+
+  return `
+    <h1 class="screen-title">Book a Tee Time</h1>
+    <div class="meta" style="margin:-8px 0 14px;">Real courses via OpenStreetMap — booking itself is still coming soon.</div>
+    ${myRequestsSection}
+    <input id="book-search" placeholder="Search courses by name..." value="${escapeHtml(state.bookSearch)}" style="margin-bottom:12px;" />
+    ${body}
+  `;
+}
+
+function renderBookCourseDetail(course){
+  return `
+    <div class="reset-link" id="book-back" style="text-align:left; margin:0 0 16px; opacity:0.55; cursor:pointer;">‹ Back to courses</div>
+    <h1 class="screen-title">${escapeHtml(course)}</h1>
+    <div class="card">
+      <div class="notes" style="margin-top:0;">This course isn't bookable through Foursome yet — want us to add it?</div>
+      <label>Preferred date (optional)</label>
+      <input id="book-date" type="date" />
+      <label>Preferred time (optional)</label>
+      <input id="book-time" type="time" />
+      <div class="form-actions">
+        <button class="btn btn-primary" id="book-request-btn" style="width:100%;" ${state.bookRequestBusy ? 'disabled' : ''}>${state.bookRequestBusy ? 'Sending…' : 'Request this course'}</button>
+      </div>
+    </div>
+  `;
+}
+
+function attachBookHandlers(){
+  if(state.bookSelectedCourse){
+    const backBtn = document.getElementById('book-back');
+    if(backBtn) backBtn.addEventListener('click', () => { state.bookSelectedCourse = null; render(); });
+    const requestBtn = document.getElementById('book-request-btn');
+    if(requestBtn) requestBtn.addEventListener('click', requestCourse);
+    return;
+  }
+
+  const searchInput = document.getElementById('book-search');
+  if(searchInput){
+    searchInput.addEventListener('input', () => {
+      state.bookSearch = searchInput.value;
+      if(state.bookSearchDebounceTimer) clearTimeout(state.bookSearchDebounceTimer);
+      state.bookSearchDebounceTimer = setTimeout(refreshBookCourses, 400);
+      render();
+    });
+    searchInput.addEventListener('focus', () => { state.bookSearchFocused = true; });
+    searchInput.addEventListener('blur', () => { state.bookSearchFocused = false; });
+    if(state.bookSearchFocused){
+      searchInput.focus();
+      const pos = searchInput.value.length;
+      searchInput.setSelectionRange(pos, pos);
+    }
+  }
+  document.querySelectorAll('[data-select-course]').forEach(el => {
+    el.addEventListener('click', () => { state.bookSelectedCourse = el.dataset.selectCourse; render(); });
+  });
+  const locationBtn = document.getElementById('book-use-location-btn');
+  if(locationBtn) locationBtn.addEventListener('click', requestLocation);
+  document.querySelectorAll('[data-cancel-request]').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      cancelCourseRequest(el.dataset.cancelRequest);
+    });
+  });
+}
+
+function renderProfile(){
+  const p = state.profile;
+
+  if(state.editingProfile){
+    return `
+      <h1 class="screen-title">Edit profile</h1>
+      <label>Your name</label>
+      <input id="ep-name" value="${escapeHtml(p.name)}" />
+      <label>Home course</label>
+      <input id="ep-course" value="${escapeHtml(p.homeCourse)}" />
+      <label>Handicap</label>
+      <input id="ep-hcp" type="number" step="0.1" value="${escapeHtml(String(p.handicap))}" />
+      <label>Short bio (optional)</label>
+      <textarea id="ep-bio" placeholder="e.g. Relaxed pace, always up for a rain check">${escapeHtml(p.bio || '')}</textarea>
+      <div class="form-actions">
+        <button class="btn btn-primary" id="ep-save" style="width:100%;">Save changes</button>
+      </div>
+      <div class="reset-link" id="ep-cancel" style="margin-top:14px;">Cancel</div>
+    `;
+  }
+
+  const roundsHistory = pastRoundsFor(state.myUserId);
+  const roundsPlayedCount = roundsHistory.length;
+
+  return `
+    <h1 class="screen-title">Your profile</h1>
+    <div class="card">
+      <div class="card-top">
+        <div class="course-name">${escapeHtml(p.name)}</div>
+        <span class="reset-link" id="edit-profile-link" style="margin:0; opacity:0.55;">Edit</span>
+      </div>
+      <div class="meta">Home course: ${escapeHtml(p.homeCourse)}</div>
+      ${p.bio ? `<div class="notes">${escapeHtml(p.bio)}</div>` : ''}
+      <div class="pill-row">
+        <span class="pill">${escapeHtml(String(p.handicap))} handicap</span>
+        ${p.ratingCount > 0 ? `<span class="pill">★${p.avgRating} (${p.ratingCount} rating${p.ratingCount===1?'':'s'})</span>` : `<span class="pill" style="opacity:0.6;">No ratings yet</span>`}
+        <span class="pill">${roundsPlayedCount} round${roundsPlayedCount===1?'':'s'} played</span>
+      </div>
+    </div>
+
+    ${roundsHistory.length > 0 ? `
+      <div class="card">
+        <div class="course-name" style="margin-bottom:8px;">Recent rounds</div>
+        ${roundsHistory.slice(0,5).map(t => `
+          <div class="request-row">
+            <span>${escapeHtml(t.course)} · ${escapeHtml(t.date)}</span>
+            <span class="pill" style="font-size:10px;">${t.hostId === state.myUserId ? 'Hosted' : 'Played'}</span>
+          </div>
+        `).join('')}
+      </div>
+    ` : ''}
+
+    <!-- Pro plan / upgrade card intentionally hidden for now (Pro gating is
+         disabled app-wide) — the Stripe checkout/portal/refresh-status code
+         behind it is untouched, so this card can come back by re-adding it
+         here. See renderProfile()/attachProfileHandlers() history. -->
+
+    <div class="settings-card">
+      <div class="settings-row" id="open-settings"><span>⚙ Settings</span><span>›</span></div>
+    </div>
+  `;
+}
+
+function attachProfileHandlers(){
+  if(state.editingProfile){
+    const saveBtn = document.getElementById('ep-save');
+    if(saveBtn){
+      saveBtn.addEventListener('click', () => {
+        const name = document.getElementById('ep-name').value.trim();
+        const course = document.getElementById('ep-course').value.trim();
+        const hcp = document.getElementById('ep-hcp').value.trim();
+        const bio = document.getElementById('ep-bio').value.trim();
+        if(!name || !course || hcp === ''){
+          showToast('Name, home course and handicap are required');
+          return;
+        }
+        saveProfile(name, course, hcp, bio);
+      });
+    }
+    const cancelBtn = document.getElementById('ep-cancel');
+    if(cancelBtn) cancelBtn.addEventListener('click', () => { state.editingProfile = false; render(); });
+    return;
+  }
+
+  const editLink = document.getElementById('edit-profile-link');
+  if(editLink) editLink.addEventListener('click', () => { state.editingProfile = true; render(); });
+  const settingsLink = document.getElementById('open-settings');
+  if(settingsLink) settingsLink.addEventListener('click', () => { state.showSettings = true; state.settingsView = 'main'; render(); });
+}
+
+init();
+</script>
+</body>
+</html>
