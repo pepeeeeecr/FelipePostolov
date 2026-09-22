@@ -21,15 +21,18 @@ if (!stripeConfigured) {
   console.warn('STRIPE_SECRET_KEY not set — payment routes are disabled until STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET and STRIPE_PRICE_ID are configured.');
 }
 
-const pushConfigured = !!(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
-if (pushConfigured) {
+// Web push (VAPID) needs our own keys; Expo's push service doesn't — any
+// server can POST a notification for a valid Expo push token with no setup,
+// so mobile push has no equivalent "configured" gate below.
+const webPushConfigured = !!(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
+if (webPushConfigured) {
   webpush.setVapidDetails(
     process.env.VAPID_SUBJECT || 'mailto:admin@example.com',
     process.env.VAPID_PUBLIC_KEY,
     process.env.VAPID_PRIVATE_KEY
   );
 } else {
-  console.warn('VAPID keys not set — push notifications are disabled until VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are configured.');
+  console.warn('VAPID keys not set — web push is disabled until VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are configured. Mobile (Expo) push is unaffected.');
 }
 
 // --- Database ---------------------------------------------------------
@@ -113,6 +116,36 @@ async function getRatingsForTeetime(teetimeId) {
   return data || [];
 }
 
+// Courses have no id anywhere in this app — keyed by name throughout (see
+// supabase-course-ratings.sql). One rating per (course, rater) — an
+// editable review, not tied to a specific round the way player ratings are.
+async function getCourseRatingSummary(courseName) {
+  const { data: rows, error } = await supabase.from('course_ratings').select('rating').eq('course_name', courseName);
+  if (error) throw error;
+  if (!rows || rows.length === 0) return { avgRating: null, ratingCount: 0 };
+  const avg = rows.reduce((s, r) => s + r.rating, 0) / rows.length;
+  return { avgRating: Math.round(avg * 10) / 10, ratingCount: rows.length };
+}
+
+// Batch version for enriching a whole list of search results in one query
+// instead of one round-trip per course.
+async function getCourseRatingSummaries(courseNames) {
+  const summaries = new Map(courseNames.map(name => [name, { avgRating: null, ratingCount: 0 }]));
+  if (courseNames.length === 0) return summaries;
+  const { data: rows, error } = await supabase.from('course_ratings').select('course_name, rating').in('course_name', courseNames);
+  if (error) throw error;
+  const byName = new Map();
+  (rows || []).forEach(r => {
+    if (!byName.has(r.course_name)) byName.set(r.course_name, []);
+    byName.get(r.course_name).push(r.rating);
+  });
+  byName.forEach((ratings, name) => {
+    const avg = ratings.reduce((s, r) => s + r, 0) / ratings.length;
+    summaries.set(name, { avgRating: Math.round(avg * 10) / 10, ratingCount: ratings.length });
+  });
+  return summaries;
+}
+
 // viewerId/blockedIds are only meaningful when the viewer is this round's
 // host: that's the one context where seeing who's pending is useful, and the
 // only case where playedTogether/blocked-filtering should run at all — it's
@@ -136,6 +169,13 @@ async function buildTeetimeResponse(row, viewerId, blockedIds) {
   return json;
 }
 
+// The only valid availability tags — enforced on write (POST /api/profiles)
+// so GET /api/availability never has to deal with garbage values.
+const AVAILABILITY_TAGS = new Set([
+  'weekday_mornings', 'weekday_afternoons', 'weekday_evenings',
+  'weekend_mornings', 'weekend_afternoons', 'weekend_evenings',
+]);
+
 // viewerId is who's looking, not who the profile belongs to — when it's
 // someone other than the profile owner, we add "mutual rounds" and whether
 // the viewer has blocked this person, both scoped to that specific pairing.
@@ -148,6 +188,7 @@ async function toProfileJson(row, viewerId) {
     handicap: row.handicap,
     bio: row.bio || '',
     isPro: !!row.is_pro,
+    availability: row.availability || [],
     avgRating: summary.avgRating,
     ratingCount: summary.ratingCount
   };
@@ -158,14 +199,48 @@ async function toProfileJson(row, viewerId) {
   return json;
 }
 
+// Sends one notification via Expo's push service — no API key needed for
+// basic use (see https://docs.expo.dev/push-notifications/sending-notifications/).
+// A "DeviceNotRegistered" ticket means the token is dead (app uninstalled,
+// or the OS revoked it) — same cleanup idea as a 410/404 from web-push below.
+async function sendExpoPush(row, title, body) {
+  try {
+    const res = await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'Accept-Encoding': 'gzip, deflate' },
+      body: JSON.stringify({ to: row.endpoint, title, body, sound: 'default' }),
+    });
+    const data = await res.json();
+    const ticket = data && data.data;
+    if (ticket && ticket.status === 'error') {
+      console.error('Expo push error for', row.user_id, ticket.message);
+      if (ticket.details && ticket.details.error === 'DeviceNotRegistered') {
+        await supabase.from('push_subscriptions').delete().eq('endpoint', row.endpoint);
+      }
+    } else if (ticket && ticket.id) {
+      // A "ok" ticket only means Expo accepted the request — it does NOT
+      // confirm Apple/Google actually delivered it to the device. Logging
+      // the ticket id so it can be checked against getReceipts when a push
+      // is reported as sent-but-not-received.
+      console.log('Expo push ticket ok for', row.user_id, 'ticket id:', ticket.id);
+    }
+  } catch (err) {
+    console.error('Expo push request failed for', row.user_id, err.message);
+  }
+}
+
 async function notifyUser(userId, title, body) {
-  if (!pushConfigured) return;
   const { data: subs, error } = await supabase.from('push_subscriptions').select('*').eq('user_id', userId);
   if (error) {
     console.error('Failed to load push subscriptions for', userId, error.message);
     return;
   }
   for (const row of subs || []) {
+    if (row.platform === 'expo') {
+      await sendExpoPush(row, title, body);
+      continue;
+    }
+    if (!webPushConfigured) continue;
     try {
       await webpush.sendNotification(row.subscription, JSON.stringify({ title, body }));
     } catch (err) {
@@ -480,24 +555,52 @@ app.delete('/api/account', ah(async (req, res) => {
 
 // --- Profiles ------------------------------------------------------------
 app.post('/api/profiles', ah(async (req, res) => {
-  const { name, homeCourse, handicap, bio } = req.body;
+  const { name, homeCourse, handicap, bio, availability } = req.body;
   const userId = resolveUserId(req, req.body.userId);
   if (!userId || !name || !homeCourse || handicap == null) {
     return res.status(400).json({ error: 'userId, name, homeCourse and handicap are required' });
   }
+  const cleanAvailability = Array.isArray(availability)
+    ? [...new Set(availability.filter(tag => AVAILABILITY_TAGS.has(tag)))]
+    : [];
   const existing = await getUser(userId);
   if (existing) {
     const { error } = await supabase.from('users').update({
-      name, home_course: homeCourse, handicap: parseFloat(handicap), bio: bio || '', updated_at: Date.now()
+      name, home_course: homeCourse, handicap: parseFloat(handicap), bio: bio || '', availability: cleanAvailability, updated_at: Date.now()
     }).eq('user_id', userId);
     if (error) return res.status(500).json({ error: 'Could not save profile' });
   } else {
     const { error } = await supabase.from('users').insert({
-      user_id: userId, name, home_course: homeCourse, handicap: parseFloat(handicap), bio: bio || '', updated_at: Date.now()
+      user_id: userId, name, home_course: homeCourse, handicap: parseFloat(handicap), bio: bio || '', availability: cleanAvailability, updated_at: Date.now()
     });
     if (error) return res.status(500).json({ error: 'Could not save profile' });
   }
   res.json(await toProfileJson(await getUser(userId)));
+}));
+
+// Standing availability, separate from one-off posted rounds — everyone who
+// has set at least one tag, for Discover's "Available players" section.
+// Prototype-scale, so no pagination; the client filters out its own id.
+app.get('/api/availability', ah(async (req, res) => {
+  // Filtering "availability is non-empty" in JS rather than via a JSONB
+  // PostgREST filter — same fetch-then-filter tradeoff already used
+  // elsewhere in this file (e.g. getPlayedTogetherCount), and avoids
+  // relying on JSONB array equality/containment filter syntax working the
+  // way it looks like it should.
+  const { data, error } = await supabase
+    .from('users')
+    .select('user_id, name, home_course, handicap, availability')
+    .order('updated_at', { ascending: false })
+    .limit(500);
+  if (error) {
+    console.error('Failed to load availability:', error.message);
+    return res.status(500).json({ error: 'Could not load availability' });
+  }
+  const users = (data || [])
+    .filter(u => Array.isArray(u.availability) && u.availability.length > 0)
+    .slice(0, 100)
+    .map(u => ({ id: u.user_id, name: u.name, homeCourse: u.home_course, handicap: u.handicap, availability: u.availability }));
+  res.json({ users });
 }));
 
 app.get('/api/profiles/:userId', ah(async (req, res) => {
@@ -580,6 +683,26 @@ app.post('/api/teetimes/:id/request', ah(async (req, res) => {
   requests.push({ userId, name, handicap, status: 'pending' });
   await supabase.from('teetimes').update({ requests }).eq('id', req.params.id);
   notifyUser(row.host_id, 'New join request', `${name} wants to join your round at ${row.course}`).catch(() => {});
+  const { data: updated } = await supabase.from('teetimes').select('*').eq('id', req.params.id).single();
+  res.json(await buildTeetimeResponse(updated));
+}));
+
+// Lets a requester withdraw their own still-pending request — scoped to
+// 'pending' only; an already-approved/denied entry is a decided outcome,
+// not something this route un-does (leaving a confirmed round is a
+// different action this doesn't attempt to cover).
+app.delete('/api/teetimes/:id/request', ah(async (req, res) => {
+  const userId = resolveUserId(req, req.body.userId);
+  if (!userId) return res.status(400).json({ error: 'userId is required' });
+  const { data: row, error } = await supabase.from('teetimes').select('*').eq('id', req.params.id).maybeSingle();
+  if (error) return res.status(500).json({ error: 'Could not load tee time' });
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  const requests = row.requests || [];
+  const existing = requests.find(r => r.userId === userId);
+  if (!existing) return res.status(404).json({ error: 'Request not found' });
+  if (existing.status !== 'pending') return res.status(400).json({ error: 'Only a pending request can be withdrawn' });
+  const nextRequests = requests.filter(r => r.userId !== userId);
+  await supabase.from('teetimes').update({ requests: nextRequests }).eq('id', req.params.id);
   const { data: updated } = await supabase.from('teetimes').select('*').eq('id', req.params.id).single();
   res.json(await buildTeetimeResponse(updated));
 }));
@@ -713,7 +836,7 @@ app.post('/api/teetimes/:id/messages', ah(async (req, res) => {
 app.get('/health', (req, res) => res.json({ ok: true }));
 
 app.get('/api/vapid-public-key', (req, res) => {
-  res.json({ publicKey: pushConfigured ? process.env.VAPID_PUBLIC_KEY : '' });
+  res.json({ publicKey: webPushConfigured ? process.env.VAPID_PUBLIC_KEY : '' });
 });
 
 app.post('/api/push/subscribe', async (req, res) => {
@@ -726,12 +849,12 @@ app.post('/api/push/subscribe', async (req, res) => {
     const { data: existing } = await supabase.from('push_subscriptions').select('id').eq('endpoint', subscription.endpoint).maybeSingle();
     if (existing) {
       const { error } = await supabase.from('push_subscriptions')
-        .update({ user_id: userId, subscription })
+        .update({ user_id: userId, subscription, platform: 'web' })
         .eq('endpoint', subscription.endpoint);
       if (error) throw error;
     } else {
       const { error } = await supabase.from('push_subscriptions')
-        .insert({ user_id: userId, endpoint: subscription.endpoint, subscription, created_at: Date.now() });
+        .insert({ user_id: userId, endpoint: subscription.endpoint, subscription, platform: 'web', created_at: Date.now() });
       if (error) throw error;
     }
     res.json({ ok: true });
@@ -741,13 +864,65 @@ app.post('/api/push/subscribe', async (req, res) => {
   }
 });
 
+// Mobile (Expo) push — the token itself is the unique id, so it plays the
+// role "endpoint" plays for a web subscription. See supabase-expo-push.sql.
+app.post('/api/push/subscribe-expo', ah(async (req, res) => {
+  const { token } = req.body;
+  const userId = resolveUserId(req, req.body.userId);
+  if (!userId || !token) {
+    return res.status(400).json({ error: 'userId and token are required' });
+  }
+  const { data: existing, error: fetchError } = await supabase.from('push_subscriptions').select('id').eq('endpoint', token).maybeSingle();
+  if (fetchError) {
+    console.error('Failed to look up Expo push subscription:', fetchError.message);
+    return res.status(500).json({ error: 'Could not save subscription' });
+  }
+  if (existing) {
+    const { error } = await supabase.from('push_subscriptions')
+      .update({ user_id: userId, subscription: { token }, platform: 'expo' })
+      .eq('endpoint', token);
+    if (error) {
+      console.error('Failed to update Expo push subscription:', error.message);
+      return res.status(500).json({ error: 'Could not save subscription' });
+    }
+  } else {
+    const { error } = await supabase.from('push_subscriptions')
+      .insert({ user_id: userId, endpoint: token, subscription: { token }, platform: 'expo', created_at: Date.now() });
+    if (error) {
+      console.error('Failed to insert Expo push subscription:', error.message);
+      return res.status(500).json({ error: 'Could not save subscription' });
+    }
+  }
+  res.json({ ok: true });
+}));
+
+// Generic unsubscribe for either platform — needed for a real "off" toggle:
+// unlike a browser subscription, an Expo push token doesn't self-invalidate
+// just because someone flips a preference in Settings, so notifyUser's lazy
+// dead-token cleanup alone wouldn't actually stop mobile push on toggle-off.
+app.delete('/api/push/unsubscribe', ah(async (req, res) => {
+  const userId = resolveUserId(req, req.body.userId);
+  const { endpoint } = req.body;
+  if (!userId || !endpoint) return res.status(400).json({ error: 'userId and endpoint are required' });
+  const { error } = await supabase.from('push_subscriptions').delete().match({ user_id: userId, endpoint });
+  if (error) return res.status(500).json({ error: 'Could not remove subscription' });
+  res.json({ ok: true });
+}));
+
 // --- Blocking & reporting --------------------------------------------------
+// Returns names alongside ids — a bare list of ids isn't renderable as a
+// "Blocked users" list in Settings on its own.
 app.get('/api/blocks/mine', ah(async (req, res) => {
   const userId = resolveUserId(req, req.query.userId);
   if (!userId) return res.status(400).json({ error: 'userId is required' });
   const { data, error } = await supabase.from('blocks').select('blocked_id').eq('blocker_id', userId);
   if (error) return res.status(500).json({ error: 'Could not load blocked users' });
-  res.json({ blockedIds: (data || []).map(r => r.blocked_id) });
+  const blockedIds = (data || []).map(r => r.blocked_id);
+  if (blockedIds.length === 0) return res.json({ blocked: [] });
+  const { data: users, error: usersError } = await supabase.from('users').select('user_id, name').in('user_id', blockedIds);
+  if (usersError) return res.status(500).json({ error: 'Could not load blocked users' });
+  const nameById = new Map((users || []).map(u => [u.user_id, u.name]));
+  res.json({ blocked: blockedIds.map(id => ({ id, name: nameById.get(id) || 'Unknown user' })) });
 }));
 
 app.post('/api/blocks', ah(async (req, res) => {
@@ -784,6 +959,42 @@ app.post('/api/reports', ah(async (req, res) => {
   });
   if (error) return res.status(500).json({ error: 'Could not submit report' });
   res.json({ ok: true });
+}));
+
+// --- Course ratings/reviews -------------------------------------------------
+// Keyed by course name (see supabase-course-ratings.sql) — one editable
+// review per (course, rater), same upsert pattern as player ratings.
+app.get('/api/course-ratings', ah(async (req, res) => {
+  const courseName = (req.query.courseName || '').trim();
+  if (!courseName) return res.status(400).json({ error: 'courseName is required' });
+  const summary = await getCourseRatingSummary(courseName);
+  const { data: rows, error } = await supabase
+    .from('course_ratings')
+    .select('raterId:rater_id, raterName:rater_name, rating, comment, createdAt:created_at')
+    .eq('course_name', courseName)
+    .order('created_at', { ascending: false });
+  if (error) return res.status(500).json({ error: 'Could not load course ratings' });
+  res.json({ avgRating: summary.avgRating, ratingCount: summary.ratingCount, ratings: rows || [] });
+}));
+
+app.post('/api/course-ratings', ah(async (req, res) => {
+  const { courseName, rating, comment, raterName } = req.body;
+  const raterId = resolveUserId(req, req.body.raterId);
+  if (!raterId || !courseName || !courseName.trim() || !rating || !raterName) {
+    return res.status(400).json({ error: 'raterId, courseName, rating and raterName are required' });
+  }
+  const r = parseInt(rating);
+  if (r < 1 || r > 5) return res.status(400).json({ error: 'rating must be between 1 and 5' });
+  const { error } = await supabase.from('course_ratings').upsert({
+    course_name: courseName.trim(), rater_id: raterId, rater_name: raterName,
+    rating: r, comment: comment || '', created_at: Date.now(),
+  }, { onConflict: 'course_name,rater_id' });
+  if (error) {
+    console.error('Failed to save course rating:', error.message);
+    return res.status(500).json({ error: 'Could not save your rating' });
+  }
+  const summary = await getCourseRatingSummary(courseName.trim());
+  res.json({ ok: true, avgRating: summary.avgRating, ratingCount: summary.ratingCount });
 }));
 
 // --- Book a Tee Time (course request / waitlist) --------------------------
@@ -890,6 +1101,15 @@ function overpassElementToCourse(el) {
   return { name: tags.name, lat, lng };
 }
 
+// Attaches Foursome's own course ratings to OpenStreetMap search results —
+// done at response time rather than baked into the OSM cache entry, so
+// cached course lists (shared across users, 5-minute TTL) stay reusable
+// while ratings themselves are always read fresh.
+async function enrichCoursesWithRatings(courses) {
+  const summaries = await getCourseRatingSummaries(courses.map(c => c.name));
+  return courses.map(c => ({ ...c, ...summaries.get(c.name) }));
+}
+
 async function fetchWithTimeout(url, options, timeoutMs) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -910,7 +1130,7 @@ app.get('/api/golf-courses/nearby', ah(async (req, res) => {
   const radiusMeters = Math.round(radiusMiles * 1609.34);
   const cacheKey = `nearby:${lat.toFixed(2)}:${lng.toFixed(2)}:${radiusMiles}`;
   const cached = getCachedOsm(cacheKey);
-  if (cached) return res.json({ courses: cached });
+  if (cached) return res.json({ courses: await enrichCoursesWithRatings(cached) });
 
   const query = `[out:json][timeout:20];(node["leisure"="golf_course"](around:${radiusMeters},${lat},${lng});way["leisure"="golf_course"](around:${radiusMeters},${lat},${lng});relation["leisure"="golf_course"](around:${radiusMeters},${lat},${lng}););out center 60;`;
   try {
@@ -929,7 +1149,7 @@ app.get('/api/golf-courses/nearby', ah(async (req, res) => {
       if (c && !seen.has(c.name)) { seen.add(c.name); courses.push(c); }
     }
     setCachedOsm(cacheKey, courses);
-    res.json({ courses });
+    res.json({ courses: await enrichCoursesWithRatings(courses) });
   } catch (err) {
     console.error('Overpass nearby lookup failed:', err.message);
     res.status(503).json({ error: 'Course search is temporarily unavailable — try again shortly' });
@@ -943,7 +1163,7 @@ app.get('/api/golf-courses/search', ah(async (req, res) => {
   }
   const cacheKey = `search:${term.toLowerCase()}`;
   const cached = getCachedOsm(cacheKey);
-  if (cached) return res.json({ courses: cached });
+  if (cached) return res.json({ courses: await enrichCoursesWithRatings(cached) });
 
   try {
     // Biasing toward "<term> golf course" matters: a bare distinctive name
@@ -961,7 +1181,7 @@ app.get('/api/golf-courses/search', ah(async (req, res) => {
       .filter(p => p.class === 'leisure' && p.type === 'golf_course')
       .map(p => ({ name: p.name || p.display_name.split(',')[0], lat: parseFloat(p.lat), lng: parseFloat(p.lon) }));
     setCachedOsm(cacheKey, courses);
-    res.json({ courses });
+    res.json({ courses: await enrichCoursesWithRatings(courses) });
   } catch (err) {
     console.error('Nominatim course search failed:', err.message);
     res.status(503).json({ error: 'Course search is temporarily unavailable — try again shortly' });

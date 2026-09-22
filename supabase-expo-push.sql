@@ -1,0 +1,12 @@
+-- Foursome backend: mobile (Expo) push notifications
+-- Run this in Supabase Dashboard > SQL Editor > New query, in addition to
+-- earlier migrations.
+--
+-- Reuses the existing push_subscriptions table rather than adding a new one
+-- (same pattern as web push): for a web row, `endpoint` is the browser's
+-- push endpoint URL and `subscription` is the full PushSubscription object
+-- web-push needs. For a mobile row, `endpoint` is the Expo push token itself
+-- (e.g. "ExponentPushToken[xxxx]") — already a natural unique id — and
+-- `subscription` just mirrors { token } for consistency. The new `platform`
+-- column tells server.js's notifyUser() which send path to use.
+alter table push_subscriptions add column if not exists platform text not null default 'web';

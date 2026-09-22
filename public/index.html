@@ -120,7 +120,7 @@ const state = {
   tab: 'discover',
   teetimes: [],
   loading: true,
-  filters: { pace: '', maxDistance: '', courseSearch: '', dateFilter: '' },
+  filters: { pace: '', maxDistance: '', courseSearch: '', dateFilter: '', maxHandicapDiff: '' },
   discoverSearchFocused: false,
   viewedThisSession: new Set(),
   myLocation: null,
@@ -129,6 +129,9 @@ const state = {
   chatMessages: [],
   chatPollInterval: null,
   editingProfile: false,
+  editAvailability: null,  // draft array of tags while editing profile, null when not editing
+  availablePlayers: [],    // GET /api/availability results, for Discover's "Available players"
+  blockedUsers: null,      // null = not loaded yet, [] = loaded and empty, else [{id, name}]
   session: null,
   entryView: 'welcome',  // 'welcome' | 'signup' | 'login' — only shown pre-profile, brand new visitors
   authOverlay: null,     // null | 'signup' | 'login' — "create an account" overlay for existing guests
@@ -148,7 +151,10 @@ const state = {
   bookSearchDebounceTimer: null,
   myCourseRequests: [],  // [{id, courseName, preferredDate, preferredTime, createdAt}]
   viewingUserId: null,       // userId of the profile popover currently open, or null
-  viewingUserProfile: null   // loaded profile for viewingUserId (includes mutualRounds/blockedByMe)
+  viewingUserProfile: null,  // loaded profile for viewingUserId (includes mutualRounds/blockedByMe)
+  courseRatingData: null,       // {avgRating, ratingCount, ratings: [...]} for bookSelectedCourse, null while loading
+  courseRatingDraftStars: 0,    // pending tap before submit, reset whenever a course is opened
+  courseRatingBusy: false
 };
 
 // Real Terms of Service / Privacy Policy / Help content — kept in sync
@@ -156,6 +162,21 @@ const state = {
 // platforms show the same policy. Each section is
 // { h: heading, p: [paragraphs], list: [bullet items] } — list/multiple p
 // entries are both optional.
+// Standing availability tags — fixed vocabulary, mirrors AVAILABILITY_TAGS
+// in server.js.
+const AVAILABILITY_OPTIONS = [
+  { value: 'weekday_mornings', label: 'Weekday mornings' },
+  { value: 'weekday_afternoons', label: 'Weekday afternoons' },
+  { value: 'weekday_evenings', label: 'Weekday evenings' },
+  { value: 'weekend_mornings', label: 'Weekend mornings' },
+  { value: 'weekend_afternoons', label: 'Weekend afternoons' },
+  { value: 'weekend_evenings', label: 'Weekend evenings' },
+];
+function availabilityLabel(value){
+  const opt = AVAILABILITY_OPTIONS.find(o => o.value === value);
+  return opt ? opt.label : value;
+}
+
 const TERMS_SECTIONS = [
   { h: 'The short version', p: ["Foursome helps golfers post open tee times and find groups to play with. Be honest in your profile, be respectful to other golfers, and use good judgment when meeting people in person — just like you would with any app that connects you with strangers. The rest of this page spells out the details."] },
   { h: 'Who can use Foursome', p: ["You must be at least 18 years old to create a Foursome account or use the app. By using Foursome, you're confirming that you meet this requirement and that the information in your profile is accurate."] },
@@ -316,32 +337,72 @@ async function authHeaders(){
   return state.session ? { 'Authorization': 'Bearer ' + state.session.access_token } : {};
 }
 
-async function apiGet(path){
-  const res = await fetch(path, { headers: await authHeaders() });
-  if(!res.ok) throw new Error('Request failed: ' + path);
-  return res.json();
+// The localtunnel dev relay is genuinely flaky in short bursts (measured
+// ~1-in-20 baseline, sometimes worse) — always as one of these gateway
+// status codes, never anything our own Express app returns (server.js only
+// sends 200/400/401/403/404/500/503 with a JSON body). Since these mean the
+// request never reached our backend at all, retrying is always safe. This
+// mirrors foursome-mobile/src/api.js's fetchRetrying.
+const RETRYABLE_STATUS = new Set([408, 502, 503, 504]);
+const MAX_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 500;
+function delay(ms){ return new Promise(resolve => setTimeout(resolve, ms)); }
+
+async function fetchRetrying(url, options, { retryOnThrow }){
+  let lastErr;
+  for(let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++){
+    try{
+      const res = await fetch(url, options);
+      if(RETRYABLE_STATUS.has(res.status) && attempt < MAX_ATTEMPTS){
+        await delay(RETRY_DELAY_MS * attempt);
+        continue;
+      }
+      return res;
+    }catch(e){
+      lastErr = e;
+      if(retryOnThrow && attempt < MAX_ATTEMPTS){
+        await delay(RETRY_DELAY_MS * attempt);
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastErr;
 }
-async function apiPost(path, body){
-  const res = await fetch(path, {
-    method: 'POST',
-    headers: Object.assign({ 'Content-Type': 'application/json' }, await authHeaders()),
-    body: JSON.stringify(body)
-  });
+
+async function handleResponse(res, path){
   if(!res.ok){
     let message = 'Request failed: ' + path;
-    try{ const data = await res.json(); if(data && data.error) message = data.error; }catch(e){ /* keep default */ }
-    throw new Error(message);
+    let body = null;
+    try{ body = await res.json(); if(body && body.error) message = body.error; }catch(e){ /* body wasn't JSON — a tunnel/gateway error page */ }
+    const err = new Error(message);
+    err.status = res.status;
+    err.path = path;
+    err.body = body;
+    throw err;
   }
   return res.json();
 }
+
+async function apiGet(path){
+  const res = await fetchRetrying(path, { headers: await authHeaders() }, { retryOnThrow: true });
+  return handleResponse(res, path);
+}
+async function apiPost(path, body){
+  const res = await fetchRetrying(path, {
+    method: 'POST',
+    headers: Object.assign({ 'Content-Type': 'application/json' }, await authHeaders()),
+    body: JSON.stringify(body)
+  }, { retryOnThrow: false });
+  return handleResponse(res, path);
+}
 async function apiDelete(path, body){
-  const res = await fetch(path, {
+  const res = await fetchRetrying(path, {
     method: 'DELETE',
     headers: Object.assign({ 'Content-Type': 'application/json' }, await authHeaders()),
     body: JSON.stringify(body)
-  });
-  if(!res.ok) throw new Error('Request failed: ' + path);
-  return res.json();
+  }, { retryOnThrow: false });
+  return handleResponse(res, path);
 }
 
 async function cancelRound(teetimeId){
@@ -424,6 +485,28 @@ async function init(){
 
     if(state.session){
       state.myUserId = state.session.user.id;
+
+      // Only present when we're back from a signInWithOAuthProvider()
+      // redirect (see there for why sessionStorage, not a JS variable) —
+      // absent entirely for a normal launch with an already-persisted
+      // session, which is what tells apart "just signed in with Google/
+      // Apple" from "returning user", since both land here with a session.
+      const pendingGuestId = sessionStorage.getItem(OAUTH_GUEST_ID_KEY);
+      if(pendingGuestId !== null){
+        sessionStorage.removeItem(OAUTH_GUEST_ID_KEY);
+        if(pendingGuestId !== '__NONE__' && pendingGuestId !== state.myUserId){
+          try{
+            const result = await apiPost('/api/auth/migrate-guest', { guestId: pendingGuestId });
+            showToast(result.migrated ? "You're signed in — your guest data was moved to your account" : "You're signed in");
+          }catch(e){
+            console.error('Guest migration failed', e);
+            showToast("You're signed in, but couldn't move your guest data over — try again from Profile");
+          }
+        } else {
+          showToast("You're signed in");
+        }
+      }
+
       try{
         state.profile = await apiGet('/api/profiles/' + state.myUserId);
       }catch(e){ state.profile = null; }
@@ -434,6 +517,7 @@ async function init(){
     // session sees, every launch, not just the very first one.
 
     await loadTeeTimes();
+    await loadAvailablePlayers();
 
     sbAuth.auth.onAuthStateChange((event, session) => {
       state.session = session;
@@ -567,6 +651,29 @@ async function logInWithEmail(email, password, previousGuestId){
   await handleAuthSuccess(data.session, previousGuestId);
 }
 
+// Google/Apple sign-in — same signInWithOAuth call the client-side-first
+// architecture always intended (see authClient.js's comment on mobile).
+// The browser navigates away entirely for this, so unlike email/password
+// there's no session to hand to handleAuthSuccess() in this same function
+// call — the guest id that needs migrating has to survive that full page
+// reload. sessionStorage does that; '__NONE__' is a real sentinel (not just
+// an absent key) so init() can tell "OAuth just completed, no guest to
+// migrate" apart from "this isn't an OAuth return at all".
+const OAUTH_GUEST_ID_KEY = 'foursome_oauth_guest_id';
+
+async function signInWithOAuthProvider(provider){
+  sessionStorage.setItem(OAUTH_GUEST_ID_KEY, state.myUserId || '__NONE__');
+  const { error } = await sbAuth.auth.signInWithOAuth({
+    provider, options: { redirectTo: window.location.origin }
+  });
+  if(error){
+    sessionStorage.removeItem(OAUTH_GUEST_ID_KEY);
+    showToast('Could not start sign-in — try again');
+    console.error(error);
+  }
+  // No further code runs here on success — the page navigates away.
+}
+
 async function signOut(){
   await sbAuth.auth.signOut();
   state.session = null;
@@ -652,9 +759,50 @@ async function reportViewingUser(){
   }
 }
 
-async function saveProfile(name, homeCourse, handicap, bio){
+// Settings > Blocked users — a plain list with an Unblock button, backed by
+// the same /api/blocks endpoints the profile popover's Block/Unblock toggle
+// already uses.
+async function loadBlockedUsers(){
   try{
-    const profile = await apiPost('/api/profiles', { userId: state.myUserId, name, homeCourse, handicap, bio: bio || '' });
+    const data = await apiGet('/api/blocks/mine?userId=' + encodeURIComponent(state.myUserId));
+    state.blockedUsers = data.blocked || [];
+  }catch(e){
+    showToast('Could not load blocked users');
+    console.error(e);
+    state.blockedUsers = [];
+  }
+  render();
+}
+
+async function unblockUser(userId){
+  try{
+    await apiDelete('/api/blocks/' + userId, { userId: state.myUserId });
+    state.blockedUsers = (state.blockedUsers || []).filter(u => u.id !== userId);
+    if(state.viewingUserId === userId && state.viewingUserProfile){
+      state.viewingUserProfile = Object.assign({}, state.viewingUserProfile, { blockedByMe: false });
+    }
+    showToast('Unblocked');
+    await loadTeeTimes();
+    render();
+  }catch(e){
+    showToast(e.message || 'Could not unblock user');
+    console.error(e);
+  }
+}
+
+async function loadAvailablePlayers(){
+  try{
+    const data = await apiGet('/api/availability');
+    state.availablePlayers = (data.users || []).filter(u => u.id !== state.myUserId);
+  }catch(e){
+    console.error('Failed to load available players', e);
+    state.availablePlayers = [];
+  }
+}
+
+async function saveProfile(name, homeCourse, handicap, bio, availability){
+  try{
+    const profile = await apiPost('/api/profiles', { userId: state.myUserId, name, homeCourse, handicap, bio: bio || '', availability: availability || [] });
     state.profile = profile;
     if(!state.profileList.some(p => p.id === state.myUserId)){
       state.profileList.push({ id: state.myUserId, name });
@@ -662,11 +810,12 @@ async function saveProfile(name, homeCourse, handicap, bio){
     }
     localStorage.setItem('foursome_activeUserId', state.myUserId);
     state.editingProfile = false;
+    state.editAvailability = null;
     showToast('Profile saved');
     render();
   }catch(e){
-    showToast('Could not save — try again');
-    console.error(e);
+    showToast(e.message || 'Could not save — try again');
+    console.error('saveProfile failed:', { message: e.message, status: e.status, path: e.path, body: e.body });
   }
 }
 
@@ -711,6 +860,18 @@ async function requestToJoin(teetimeId){
     render();
   }catch(e){
     showToast(e.message || 'Could not send request — try again');
+    console.error(e);
+  }
+}
+
+async function withdrawRequest(teetimeId){
+  try{
+    await apiDelete('/api/teetimes/' + teetimeId + '/request', { userId: state.myUserId });
+    showToast('Request withdrawn');
+    await loadTeeTimes();
+    render();
+  }catch(e){
+    showToast(e.message || 'Could not withdraw — try again');
     console.error(e);
   }
 }
@@ -944,6 +1105,7 @@ function renderSettingsOverlay(){
   else if(state.settingsView === 'contact') body = renderSettingsContact();
   else if(state.settingsView === 'terms') body = renderSettingsDoc('Terms of Service', TERMS_SECTIONS);
   else if(state.settingsView === 'privacy') body = renderSettingsDoc('Privacy Policy', PRIVACY_SECTIONS);
+  else if(state.settingsView === 'blocked') body = renderSettingsBlocked();
   else body = renderSettingsMain();
 
   return `
@@ -983,6 +1145,11 @@ function renderSettingsMain(){
       </div>
     </div>
 
+    <div class="settings-group-label">PRIVACY &amp; SAFETY</div>
+    <div class="settings-card">
+      <div class="settings-row" data-settings-nav="blocked"><span>Blocked users</span><span>›</span></div>
+    </div>
+
     <div class="settings-group-label">SUPPORT</div>
     <div class="settings-card">
       <div class="settings-row" data-settings-nav="help"><span>Help &amp; FAQ</span><span>›</span></div>
@@ -995,6 +1162,27 @@ function renderSettingsMain(){
     <div class="settings-card danger">
       <div class="settings-row danger" data-settings-nav="deleteConfirm"><span>Delete account</span><span>›</span></div>
     </div>
+  `;
+}
+
+function renderSettingsBlocked(){
+  let body;
+  if(state.blockedUsers === null){
+    body = `<div class="notes" style="margin-top:0;">Loading…</div>`;
+  } else if(state.blockedUsers.length === 0){
+    body = `<div class="empty" style="padding:30px 10px;">You haven't blocked anyone.</div>`;
+  } else {
+    body = `<div class="settings-card">${state.blockedUsers.map(u => `
+      <div class="settings-row" style="cursor:default;">
+        <span>${escapeHtml(u.name)}</span>
+        <button class="btn btn-ghost" style="flex:none; padding:5px 12px; font-size:12px;" data-unblock="${u.id}">Unblock</button>
+      </div>
+    `).join('')}</div>`;
+  }
+  return `
+    <h1 class="screen-title">Blocked users</h1>
+    ${body}
+    <div class="reset-link" data-settings-nav="main">Back</div>
   `;
 }
 
@@ -1073,6 +1261,7 @@ function attachSettingsHandlers(){
       if(target === 'editProfile'){
         state.showSettings = false;
         state.editingProfile = true;
+        state.editAvailability = [...(state.profile.availability || [])];
         state.tab = 'profile';
         render();
         return;
@@ -1080,6 +1269,7 @@ function attachSettingsHandlers(){
       state.settingsView = target;
       state.settingsError = '';
       render();
+      if(target === 'blocked') loadBlockedUsers();
     });
   });
 
@@ -1110,6 +1300,12 @@ function attachSettingsHandlers(){
     if(deleteBtn) deleteBtn.addEventListener('click', () => {
       const text = document.getElementById('settings-delete-confirm').value.trim();
       deleteAccount(text);
+    });
+  }
+
+  if(state.settingsView === 'blocked'){
+    document.querySelectorAll('[data-unblock]').forEach(btn => {
+      btn.addEventListener('click', () => unblockUser(btn.dataset.unblock));
     });
   }
 }
@@ -1185,6 +1381,9 @@ function render(){
       if(state.tab === 'book'){
         await loadMyCourseRequests();
         await refreshBookCourses();
+      }
+      if(state.tab === 'discover'){
+        await loadAvailablePlayers();
       }
       render();
     });
@@ -1281,6 +1480,13 @@ function authFormFieldsHtml(mode, idPrefix){
       <button class="btn btn-primary" id="${idPrefix}-submit" style="width:100%;" ${state.authBusy ? 'disabled' : ''}>${state.authBusy ? 'Please wait…' : heading}</button>
     </div>
     <div class="reset-link" id="${idPrefix}-switch">${switchLabel}</div>
+    <div style="display:flex; align-items:center; gap:10px; margin:18px 0;">
+      <div style="flex:1; height:1px; background:var(--line);"></div>
+      <span style="font-size:11px; opacity:0.5;">OR</span>
+      <div style="flex:1; height:1px; background:var(--line);"></div>
+    </div>
+    <button class="btn btn-ghost" data-oauth-provider="google" style="width:100%; margin-bottom:10px;" ${state.authBusy ? 'disabled' : ''}>Continue with Google</button>
+    <button class="btn btn-ghost" data-oauth-provider="apple" style="width:100%;" ${state.authBusy ? 'disabled' : ''}>Continue with Apple</button>
   `;
 }
 
@@ -1319,6 +1525,10 @@ function attachAuthFormHandlers(mode, opts){
     const backLink = document.getElementById('entry-auth-back');
     if(backLink) backLink.addEventListener('click', () => { state.entryView = 'welcome'; state.authError = ''; render(); });
   }
+
+  document.querySelectorAll('[data-oauth-provider]').forEach(btn => {
+    btn.addEventListener('click', () => signInWithOAuthProvider(btn.dataset.oauthProvider));
+  });
 }
 
 function renderEntryGate(){
@@ -1480,6 +1690,10 @@ function renderDiscover(){
       return distanceMiles(state.myLocation.lat, state.myLocation.lng, t.lat, t.lng) <= maxMiles;
     });
   }
+  if(state.filters.maxHandicapDiff && state.profile && state.profile.handicap != null){
+    const maxDiff = parseFloat(state.filters.maxHandicapDiff);
+    open = open.filter(t => t.hostHandicap == null || Math.abs(t.hostHandicap - state.profile.handicap) <= maxDiff);
+  }
 
   open.sort((a,b) => {
     if(state.myLocation && a.lat != null && b.lat != null){
@@ -1526,11 +1740,35 @@ function renderDiscover(){
           <option value="50" ${state.filters.maxDistance==='50'?'selected':''}>Within 50 mi</option>
         </select>
       ` : ''}
+      ${state.profile && state.profile.handicap != null ? `
+        <label style="margin-top:10px;">Skill level (your handicap: ${escapeHtml(String(state.profile.handicap))})</label>
+        <select id="filter-handicap">
+          <option value="">Any skill level</option>
+          <option value="3" ${state.filters.maxHandicapDiff==='3'?'selected':''}>Within 3 strokes of me</option>
+          <option value="5" ${state.filters.maxHandicapDiff==='5'?'selected':''}>Within 5 strokes of me</option>
+          <option value="10" ${state.filters.maxHandicapDiff==='10'?'selected':''}>Within 10 strokes of me</option>
+        </select>
+      ` : ''}
     </div>
   `;
 
+  // Standing availability — separate from one-off posted rounds below. Just
+  // a "here's who's generally free" signal; tapping a card opens the same
+  // profile popover used everywhere else (mutual rounds, block, report).
+  const availablePlayersHtml = state.availablePlayers.length > 0 ? `
+    <div style="font-size:12px; font-weight:700; opacity:0.55; margin:14px 0 8px;">AVAILABLE PLAYERS</div>
+    <div class="card" style="padding:6px 14px;">
+      ${state.availablePlayers.map(u => `
+        <div class="request-row" style="flex-wrap:wrap; cursor:pointer;" data-view-user="${u.id}">
+          <span>${escapeHtml(u.name)}${u.handicap != null ? ` · ${escapeHtml(String(u.handicap))} HCP` : ''}</span>
+          <span style="width:100%; font-size:11px; opacity:0.6; margin-top:2px;">${u.availability.map(availabilityLabel).map(escapeHtml).join(', ')}</span>
+        </div>
+      `).join('')}
+    </div>
+  ` : '';
+
   if(open.length === 0){
-    return `<h1 class="screen-title">Find a group</h1><div class="meta" style="margin:-8px 0 14px;">Rounds posted by real golfers — not live course availability.</div>${searchBar}${locationBanner}${filterBar}<div class="empty">No open rounds match right now.<br>Try Post Round, or check back later.</div>`;
+    return `<h1 class="screen-title">Find a group</h1><div class="meta" style="margin:-8px 0 14px;">Rounds posted by real golfers — not live course availability.</div>${searchBar}${locationBanner}${filterBar}${availablePlayersHtml}<div class="empty">No open rounds match right now.<br>Try Post Round, or check back later.</div>`;
   }
 
   return `
@@ -1539,6 +1777,8 @@ function renderDiscover(){
     ${searchBar}
     ${locationBanner}
     ${filterBar}
+    ${availablePlayersHtml}
+    ${state.availablePlayers.length > 0 ? '<div style="font-size:12px; font-weight:700; opacity:0.55; margin:14px 0 8px;">OPEN ROUNDS</div>' : ''}
     ${open.map(t => {
       const myReq = t.requests.find(r => r.userId === state.myUserId);
       let actionHtml;
@@ -1612,6 +1852,10 @@ function attachDiscoverHandlers(){
   const distanceSelect = document.getElementById('filter-distance');
   if(distanceSelect){
     distanceSelect.addEventListener('change', () => { state.filters.maxDistance = distanceSelect.value; render(); });
+  }
+  const handicapSelect = document.getElementById('filter-handicap');
+  if(handicapSelect){
+    handicapSelect.addEventListener('change', () => { state.filters.maxHandicapDiff = handicapSelect.value; render(); });
   }
   const locationBtn = document.getElementById('use-location-btn');
   if(locationBtn){
@@ -1740,6 +1984,7 @@ function renderMyRounds(){
             <span class="status-tag status-${myReq.status}">${myReq.status}</span>
           </div>
           <div class="meta">${escapeHtml(t.date)} · ${escapeHtml(t.time)} · hosted by <span data-view-user="${t.hostId}" style="text-decoration:underline; cursor:pointer;">${escapeHtml(t.hostName)}</span></div>
+          ${myReq.status === 'pending' ? `<div class="row"><button class="btn btn-deny" style="padding:7px 10px; font-size:12px;" data-withdraw="${t.id}">Withdraw request</button></div>` : ''}
           ${myReq.status === 'approved' ? `<div class="row"><button class="btn btn-ghost" style="padding:7px 10px; font-size:12px;" data-chat-open="${t.id}">Chat</button></div>` : ''}
           ${myReq.status === 'approved' ? starPickerHtml(t.id, t.hostId, myRatingOfHost ? myRatingOfHost.rating : null) : ''}
         </div>
@@ -1775,6 +2020,9 @@ function attachMyRoundsHandlers(){
   });
   document.querySelectorAll('[data-cancel]').forEach(btn => {
     btn.addEventListener('click', () => cancelRound(btn.dataset.cancel));
+  });
+  document.querySelectorAll('[data-withdraw]').forEach(btn => {
+    btn.addEventListener('click', () => withdrawRequest(btn.dataset.withdraw));
   });
 }
 
@@ -1927,12 +2175,14 @@ function renderBook(){
       const distanceLine = state.myLocation
         ? `<div class="meta">${distanceMiles(state.myLocation.lat, state.myLocation.lng, c.lat, c.lng).toFixed(1)} mi away</div>`
         : '';
+      const ratingLine = c.ratingCount > 0 ? `<div class="meta">★${c.avgRating} (${c.ratingCount} rating${c.ratingCount===1?'':'s'})</div>` : '';
       return `
         <div class="card" data-select-course="${escapeHtml(c.name)}" style="cursor:pointer;">
           <div style="display:flex; justify-content:space-between; align-items:center;">
             <span class="course-name">${escapeHtml(c.name)}</span>
             ${already ? '<span class="pill" style="border-color:var(--turf); color:var(--turf); font-weight:700;">Requested</span>' : '<span style="opacity:0.35;">›</span>'}
           </div>
+          ${ratingLine}
           ${distanceLine}
         </div>
       `;
@@ -1949,9 +2199,45 @@ function renderBook(){
 }
 
 function renderBookCourseDetail(course){
+  const data = state.courseRatingData;
+  const myExisting = data && data.ratings.find(r => r.raterId === state.myUserId);
+  const shownStars = state.courseRatingDraftStars || (myExisting ? myExisting.rating : 0);
+
+  const summaryHtml = !data
+    ? '<div class="meta" style="margin-top:0;">Loading ratings…</div>'
+    : data.ratingCount > 0
+      ? `<div class="pill-row" style="margin-top:0;"><span class="pill">★${data.avgRating} (${data.ratingCount} rating${data.ratingCount===1?'':'s'})</span></div>`
+      : `<div class="meta" style="margin-top:0;">No ratings yet — be the first to rate this course.</div>`;
+
+  const starsHtml = [1,2,3,4,5].map(i =>
+    `<span class="course-star-pick" data-star="${i}" style="cursor:pointer; font-size:20px; margin-right:2px;">${shownStars >= i ? '★' : '☆'}</span>`
+  ).join('');
+
+  const reviewsHtml = (data && data.ratings.length > 0) ? `
+    <div class="card">
+      <div class="course-name" style="margin-bottom:8px;">Reviews</div>
+      ${data.ratings.map(r => `
+        <div class="request-row" style="flex-wrap:wrap; align-items:flex-start;">
+          <span>${escapeHtml(r.raterName)} · ${'★'.repeat(r.rating)}${'☆'.repeat(5-r.rating)}</span>
+          ${r.comment ? `<div class="notes" style="width:100%; margin-top:2px;">${escapeHtml(r.comment)}</div>` : ''}
+        </div>
+      `).join('')}
+    </div>
+  ` : '';
+
   return `
     <div class="reset-link" id="book-back" style="text-align:left; margin:0 0 16px; opacity:0.55; cursor:pointer;">‹ Back to courses</div>
     <h1 class="screen-title">${escapeHtml(course)}</h1>
+    ${summaryHtml}
+    <div class="card">
+      <label style="margin-top:0;">${myExisting ? 'Update your rating' : 'Rate this course'}</label>
+      <div class="row" style="align-items:center; margin-top:4px;">${starsHtml}</div>
+      <textarea id="course-rating-comment" placeholder="Optional comment">${escapeHtml(myExisting ? (myExisting.comment || '') : '')}</textarea>
+      <div class="form-actions">
+        <button class="btn btn-primary" id="course-rating-submit" style="width:100%;" ${state.courseRatingBusy || !shownStars ? 'disabled' : ''}>${state.courseRatingBusy ? 'Saving…' : (myExisting ? 'Update rating' : 'Submit rating')}</button>
+      </div>
+    </div>
+    ${reviewsHtml}
     <div class="card">
       <div class="notes" style="margin-top:0;">This course isn't bookable through Foursome yet — want us to add it?</div>
       <label>Preferred date (optional)</label>
@@ -1965,12 +2251,59 @@ function renderBookCourseDetail(course){
   `;
 }
 
+async function selectCourse(courseName){
+  state.bookSelectedCourse = courseName;
+  state.courseRatingData = null;
+  state.courseRatingDraftStars = 0;
+  render();
+  try{
+    state.courseRatingData = await apiGet('/api/course-ratings?courseName=' + encodeURIComponent(courseName));
+  }catch(e){
+    state.courseRatingData = { avgRating: null, ratingCount: 0, ratings: [] };
+    console.error('Failed to load course ratings', e);
+  }
+  render();
+}
+
+async function submitCourseRating(){
+  const courseName = state.bookSelectedCourse;
+  const stars = state.courseRatingDraftStars;
+  if(!courseName || !stars) return;
+  const commentEl = document.getElementById('course-rating-comment');
+  const comment = commentEl ? commentEl.value.trim() : '';
+  state.courseRatingBusy = true; render();
+  try{
+    await apiPost('/api/course-ratings', {
+      raterId: state.myUserId, raterName: state.profile.name,
+      courseName, rating: stars, comment
+    });
+    state.courseRatingData = await apiGet('/api/course-ratings?courseName=' + encodeURIComponent(courseName));
+    state.courseRatingDraftStars = 0;
+    showToast('Rating saved');
+  }catch(e){
+    showToast(e.message || 'Could not save your rating — try again');
+    console.error(e);
+  }
+  state.courseRatingBusy = false;
+  render();
+}
+
 function attachBookHandlers(){
   if(state.bookSelectedCourse){
     const backBtn = document.getElementById('book-back');
-    if(backBtn) backBtn.addEventListener('click', () => { state.bookSelectedCourse = null; render(); });
+    if(backBtn) backBtn.addEventListener('click', () => {
+      state.bookSelectedCourse = null;
+      state.courseRatingData = null;
+      state.courseRatingDraftStars = 0;
+      render();
+    });
     const requestBtn = document.getElementById('book-request-btn');
     if(requestBtn) requestBtn.addEventListener('click', requestCourse);
+    document.querySelectorAll('.course-star-pick').forEach(el => {
+      el.addEventListener('click', () => { state.courseRatingDraftStars = parseInt(el.dataset.star); render(); });
+    });
+    const ratingSubmitBtn = document.getElementById('course-rating-submit');
+    if(ratingSubmitBtn) ratingSubmitBtn.addEventListener('click', submitCourseRating);
     return;
   }
 
@@ -1991,7 +2324,7 @@ function attachBookHandlers(){
     }
   }
   document.querySelectorAll('[data-select-course]').forEach(el => {
-    el.addEventListener('click', () => { state.bookSelectedCourse = el.dataset.selectCourse; render(); });
+    el.addEventListener('click', () => selectCourse(el.dataset.selectCourse));
   });
   const locationBtn = document.getElementById('book-use-location-btn');
   if(locationBtn) locationBtn.addEventListener('click', requestLocation);
@@ -2007,6 +2340,7 @@ function renderProfile(){
   const p = state.profile;
 
   if(state.editingProfile){
+    const draft = state.editAvailability || [];
     return `
       <h1 class="screen-title">Edit profile</h1>
       <label>Your name</label>
@@ -2017,6 +2351,12 @@ function renderProfile(){
       <input id="ep-hcp" type="number" step="0.1" value="${escapeHtml(String(p.handicap))}" />
       <label>Short bio (optional)</label>
       <textarea id="ep-bio" placeholder="e.g. Relaxed pace, always up for a rain check">${escapeHtml(p.bio || '')}</textarea>
+      <label>General availability (optional — shown to others browsing Discover)</label>
+      <div class="pill-row">
+        ${AVAILABILITY_OPTIONS.map(opt => `
+          <span class="pill availability-toggle" data-availability-tag="${opt.value}" style="cursor:pointer; ${draft.includes(opt.value) ? 'background:var(--fairway); color:#fff; border-color:var(--fairway);' : ''}">${opt.label}</span>
+        `).join('')}
+      </div>
       <div class="form-actions">
         <button class="btn btn-primary" id="ep-save" style="width:100%;">Save changes</button>
       </div>
@@ -2041,6 +2381,9 @@ function renderProfile(){
         ${p.ratingCount > 0 ? `<span class="pill">★${p.avgRating} (${p.ratingCount} rating${p.ratingCount===1?'':'s'})</span>` : `<span class="pill" style="opacity:0.6;">No ratings yet</span>`}
         <span class="pill">${roundsPlayedCount} round${roundsPlayedCount===1?'':'s'} played</span>
       </div>
+      ${(p.availability && p.availability.length > 0) ? `
+        <div class="meta" style="margin-top:8px;">Generally available: ${p.availability.map(availabilityLabel).map(escapeHtml).join(', ')}</div>
+      ` : ''}
     </div>
 
     ${roundsHistory.length > 0 ? `
@@ -2068,6 +2411,14 @@ function renderProfile(){
 
 function attachProfileHandlers(){
   if(state.editingProfile){
+    document.querySelectorAll('[data-availability-tag]').forEach(el => {
+      el.addEventListener('click', () => {
+        const tag = el.dataset.availabilityTag;
+        const draft = state.editAvailability || [];
+        state.editAvailability = draft.includes(tag) ? draft.filter(t => t !== tag) : [...draft, tag];
+        render();
+      });
+    });
     const saveBtn = document.getElementById('ep-save');
     if(saveBtn){
       saveBtn.addEventListener('click', () => {
@@ -2079,16 +2430,20 @@ function attachProfileHandlers(){
           showToast('Name, home course and handicap are required');
           return;
         }
-        saveProfile(name, course, hcp, bio);
+        saveProfile(name, course, hcp, bio, state.editAvailability);
       });
     }
     const cancelBtn = document.getElementById('ep-cancel');
-    if(cancelBtn) cancelBtn.addEventListener('click', () => { state.editingProfile = false; render(); });
+    if(cancelBtn) cancelBtn.addEventListener('click', () => { state.editingProfile = false; state.editAvailability = null; render(); });
     return;
   }
 
   const editLink = document.getElementById('edit-profile-link');
-  if(editLink) editLink.addEventListener('click', () => { state.editingProfile = true; render(); });
+  if(editLink) editLink.addEventListener('click', () => {
+    state.editingProfile = true;
+    state.editAvailability = [...(state.profile.availability || [])];
+    render();
+  });
   const settingsLink = document.getElementById('open-settings');
   if(settingsLink) settingsLink.addEventListener('click', () => { state.showSettings = true; state.settingsView = 'main'; render(); });
 }
