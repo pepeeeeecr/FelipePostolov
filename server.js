@@ -11,6 +11,8 @@ const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
 const Stripe = require('stripe');
 const webpush = require('web-push');
+const { moderateFields } = require('./moderation');
+const legal = require('./legalContent');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -252,6 +254,46 @@ async function notifyUser(userId, title, body) {
   }
 }
 
+// --- Admin notification email --------------------------------------------
+// Uses Resend (resend.com) over its plain HTTP API — no SDK, no SMTP setup,
+// just one fetch call. Without RESEND_API_KEY set, this silently no-ops
+// (logging a warning) rather than failing the report itself; filing a
+// report must never depend on email being configured.
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+
+async function notifyAdminOfReport(reporterId, reportedId, reason) {
+  if (!RESEND_API_KEY) {
+    console.warn('RESEND_API_KEY not set — report email notification skipped.');
+    return;
+  }
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: 'Foursome Reports <onboarding@resend.dev>',
+        to: [legal.ADMIN_EMAIL],
+        subject: 'New Foursome user report',
+        text: [
+          'A user was reported in Foursome.',
+          '',
+          `Reporter: ${reporterId}`,
+          `Reported: ${reportedId}`,
+          `Reason: ${reason}`,
+          '',
+          'Review and act on it in Supabase Dashboard > Table Editor > user_reports',
+          '(ban by setting the reported user\'s "banned" column to true in the users table).',
+        ].join('\n'),
+      }),
+    });
+    if (!res.ok) {
+      console.error('Report notification email failed:', res.status, await res.text().catch(() => ''));
+    }
+  } catch (e) {
+    console.error('Report notification email failed:', e.message);
+  }
+}
+
 function isParticipant(teetimeRow, userId) {
   if (teetimeRow.host_id === userId) return true;
   const requests = teetimeRow.requests || [];
@@ -275,6 +317,38 @@ async function getBlockedUserIds(userId) {
   (asBlocker || []).forEach(r => ids.add(r.blocked_id));
   (asBlocked || []).forEach(r => ids.add(r.blocker_id));
   return ids;
+}
+
+// --- Moderation: banned users --------------------------------------------
+// Flipped by hand in Supabase's Table Editor (users.banned) — no admin UI
+// in the app itself yet. Checked on every write a user makes (profile,
+// rounds, requests, ratings, messages) and used to filter banned hosts out
+// of anything other users browse, same shape as the blocking filter above.
+// Fails open (treats everyone as not-banned) if the `banned` column doesn't
+// exist yet — i.e. before supabase-banned-flag.sql has been run. That keeps
+// a deploy of this code from breaking every write/listing endpoint on a
+// database that hasn't been migrated yet; it just means banning silently
+// doesn't work until the migration runs, which the warning log makes
+// obvious the moment someone actually looks.
+async function isBanned(userId) {
+  if (!userId) return false;
+  try {
+    const user = await getUser(userId);
+    return !!(user && user.banned);
+  } catch (e) {
+    console.warn('isBanned check failed (has supabase-banned-flag.sql been run?):', e.message);
+    return false;
+  }
+}
+const BANNED_ERROR = { error: 'Your account has been suspended.' };
+
+async function getBannedUserIds() {
+  const { data, error } = await supabase.from('users').select('user_id').eq('banned', true);
+  if (error) {
+    console.warn('getBannedUserIds failed (has supabase-banned-flag.sql been run?):', error.message);
+    return new Set();
+  }
+  return new Set((data || []).map(r => r.user_id));
 }
 
 // True if either user has blocked the other — used to gate join requests,
@@ -560,10 +634,13 @@ app.post('/api/profiles', ah(async (req, res) => {
   if (!userId || !name || !homeCourse || handicap == null) {
     return res.status(400).json({ error: 'userId, name, homeCourse and handicap are required' });
   }
+  const modError = moderateFields([name, bio]);
+  if (modError) return res.status(400).json(modError);
   const cleanAvailability = Array.isArray(availability)
     ? [...new Set(availability.filter(tag => AVAILABILITY_TAGS.has(tag)))]
     : [];
   const existing = await getUser(userId);
+  if (existing && existing.banned) return res.status(403).json(BANNED_ERROR);
   if (existing) {
     const { error } = await supabase.from('users').update({
       name, home_course: homeCourse, handicap: parseFloat(handicap), bio: bio || '', availability: cleanAvailability, updated_at: Date.now()
@@ -600,7 +677,9 @@ app.get('/api/availability', ah(async (req, res) => {
     console.error('Failed to load availability:', error.message);
     return res.status(500).json({ error: 'Could not load availability' });
   }
+  const bannedIds = await getBannedUserIds();
   const users = (data || [])
+    .filter(u => !bannedIds.has(u.user_id))
     .filter(u => Array.isArray(u.availability) && u.availability.length > 0)
     .slice(0, 100)
     .map(u => ({ id: u.user_id, name: u.name, homeCourse: u.home_course, handicap: u.handicap, availability: u.availability }));
@@ -609,7 +688,12 @@ app.get('/api/availability', ah(async (req, res) => {
 
 app.get('/api/profiles/:userId', ah(async (req, res) => {
   const user = await getUser(req.params.userId);
-  if (!user) return res.status(404).json({ error: 'Not found' });
+  // Treated identically to "not found" for everyone, including the banned
+  // user's own client — this is what makes a ban actually stick without
+  // needing viewer-aware special-casing: their own app can't load their
+  // profile either, so it falls back to onboarding, and re-creating it
+  // hits the banned check in POST /api/profiles.
+  if (!user || user.banned) return res.status(404).json({ error: 'Not found' });
   const viewerId = resolveUserId(req, req.query.viewerId);
   res.json(await toProfileJson(user, viewerId));
 }));
@@ -620,14 +704,19 @@ app.get('/api/teetimes', ah(async (req, res) => {
   const { data: rows, error } = await supabase.from('teetimes').select('*').order('created_at', { ascending: false });
   if (error) return res.status(500).json({ error: 'Could not load tee times' });
 
+  // Banned hosts' rounds are hidden from everyone, not just this viewer —
+  // unlike blocking, this isn't viewer-specific, so it's not gated on
+  // viewerId being present.
+  const bannedIds = await getBannedUserIds();
+  let visibleRows = bannedIds.size ? rows.filter(r => !bannedIds.has(r.host_id)) : rows;
+
   // Blocking hides rounds in both directions: a blocked-or-blocking host's
   // rounds disappear from this viewer's Discover, same as this viewer's
   // rounds disappear from theirs (via the same check on their own request).
-  let visibleRows = rows;
   let blockedIds = null;
   if (viewerId) {
     blockedIds = await getBlockedUserIds(viewerId);
-    if (blockedIds.size) visibleRows = rows.filter(r => !blockedIds.has(r.host_id));
+    if (blockedIds.size) visibleRows = visibleRows.filter(r => !blockedIds.has(r.host_id));
   }
   res.json(await Promise.all(visibleRows.map(r => buildTeetimeResponse(r, viewerId, blockedIds))));
 }));
@@ -638,6 +727,9 @@ app.post('/api/teetimes', ah(async (req, res) => {
   if (!hostId || !hostName || !course || !date || !time || !totalSpots) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
+  const modError = moderateFields([hostName, course, hcpRange, notes]);
+  if (modError) return res.status(400).json(modError);
+  if (await isBanned(hostId)) return res.status(403).json(BANNED_ERROR);
 
   // Pro gating is disabled for now (see is_pro on the users table) — this
   // is still read for host_is_pro's display badge, just not used to limit
@@ -677,6 +769,7 @@ app.post('/api/teetimes/:id/request', ah(async (req, res) => {
   const { data: row, error } = await supabase.from('teetimes').select('*').eq('id', req.params.id).maybeSingle();
   if (error) return res.status(500).json({ error: 'Could not load tee time' });
   if (!row) return res.status(404).json({ error: 'Not found' });
+  if (await isBanned(userId)) return res.status(403).json(BANNED_ERROR);
   if (await isBlocked(userId, row.host_id)) {
     return res.status(403).json({ error: "You can't request to join this round" });
   }
@@ -719,6 +812,7 @@ app.post('/api/teetimes/:id/respond', ah(async (req, res) => {
   if (req.authUser && req.authUser.id !== row.host_id) {
     return res.status(403).json({ error: 'Only the host can respond to requests' });
   }
+  if (await isBanned(row.host_id)) return res.status(403).json(BANNED_ERROR);
   const requests = row.requests || [];
   const reqEntry = requests.find(r => r.userId === userId);
   if (!reqEntry) return res.status(404).json({ error: 'Request not found' });
@@ -743,6 +837,7 @@ app.post('/api/teetimes/:id/rate', ah(async (req, res) => {
   }
   const r = parseInt(rating);
   if (r < 1 || r > 5) return res.status(400).json({ error: 'rating must be between 1 and 5' });
+  if (await isBanned(raterId)) return res.status(403).json(BANNED_ERROR);
   const { data: row, error } = await supabase.from('teetimes').select('*').eq('id', req.params.id).maybeSingle();
   if (error) return res.status(500).json({ error: 'Could not load tee time' });
   if (!row) return res.status(404).json({ error: 'Not found' });
@@ -810,6 +905,9 @@ app.post('/api/teetimes/:id/messages', ah(async (req, res) => {
   if (!userId || !name || !text || !text.trim()) {
     return res.status(400).json({ error: 'userId, name and text are required' });
   }
+  const modError = moderateFields([text]);
+  if (modError) return res.status(400).json(modError);
+  if (await isBanned(userId)) return res.status(403).json(BANNED_ERROR);
   const { data: row, error } = await supabase.from('teetimes').select('*').eq('id', req.params.id).maybeSingle();
   if (error) return res.status(500).json({ error: 'Could not load tee time' });
   if (!row) return res.status(404).json({ error: 'Not found' });
@@ -838,6 +936,93 @@ app.post('/api/teetimes/:id/messages', ah(async (req, res) => {
 }));
 
 app.get('/health', (req, res) => res.json({ ok: true }));
+
+// --- Public legal/support pages -------------------------------------------
+// Plain server-rendered HTML — reachable at a stable URL with no JS
+// required, which is what App Store Connect's Privacy Policy field (and a
+// human reviewer) actually need. Content matches public/index.html's and
+// foursome-mobile's in-app copies (see legalContent.js's header comment).
+function legalEscapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function renderLegalSections(sections) {
+  return sections.map(s => `
+    <section>
+      ${s.h ? `<h2>${legalEscapeHtml(s.h)}</h2>` : ''}
+      ${(s.p || []).map(p => `<p>${legalEscapeHtml(p)}</p>`).join('')}
+      ${s.list ? `<ul>${s.list.map(i => `<li>${legalEscapeHtml(i)}</li>`).join('')}</ul>` : ''}
+    </section>
+  `).join('');
+}
+
+function renderLegalPage(title, innerHtml) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${legalEscapeHtml(title)} — Foursome</title>
+<style>
+  body{ margin:0; background:#F6F3EC; color:#1C2A1F; font-family:'Helvetica Neue', Arial, sans-serif; }
+  .wrap{ max-width:640px; margin:0 auto; padding:32px 20px 60px; }
+  h1{ font-size:26px; margin:0 0 4px; }
+  .effective{ font-size:13px; opacity:0.68; margin-bottom:28px; }
+  h2{ font-size:16px; margin:24px 0 6px; }
+  p{ font-size:14.5px; line-height:1.6; margin:0 0 10px; }
+  ul{ margin:6px 0 10px; padding-left:20px; }
+  li{ font-size:14.5px; line-height:1.6; margin-bottom:4px; }
+  a{ color:#16281B; }
+  .nav{ margin-bottom:28px; font-size:13px; }
+  .nav a{ margin-right:16px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="nav"><a href="/privacy">Privacy Policy</a><a href="/terms">Terms of Service</a><a href="/support">Support</a></div>
+  <h1>${legalEscapeHtml(title)}</h1>
+  <div class="effective">Effective ${legalEscapeHtml(legal.LEGAL_EFFECTIVE_DATE)}</div>
+  ${innerHtml}
+</div>
+</body>
+</html>`;
+}
+
+app.get('/privacy', (req, res) => {
+  res.send(renderLegalPage('Privacy Policy', renderLegalSections(legal.PRIVACY_SECTIONS)));
+});
+
+app.get('/terms', (req, res) => {
+  res.send(renderLegalPage('Terms of Service', renderLegalSections(legal.TERMS_SECTIONS)));
+});
+
+app.get('/cookies', (req, res) => {
+  res.send(renderLegalPage('Cookie Policy', renderLegalSections(legal.COOKIE_SECTIONS)));
+});
+
+app.get('/refund', (req, res) => {
+  res.send(renderLegalPage('Refund Policy', renderLegalSections(legal.REFUND_SECTIONS)));
+});
+
+app.get('/support', (req, res) => {
+  const body = `
+    <section>
+      <p>Have a question, found a bug, or need help with your Foursome account? Email us and we'll get back to you.</p>
+      <p><a href="mailto:${legalEscapeHtml(legal.ADMIN_EMAIL)}">${legalEscapeHtml(legal.ADMIN_EMAIL)}</a></p>
+    </section>
+    <section>
+      <h2>Report a user or piece of content</h2>
+      <p>You can report another user directly from their profile in the app. If you'd rather reach us directly, email the address above with what happened and we'll look into it.</p>
+    </section>
+    <section>
+      <h2>Delete your account</h2>
+      <p>Go to Settings &gt; Delete account in the app. This permanently removes your profile, hosted rounds and their chat history, and ratings.</p>
+    </section>
+  `;
+  res.send(renderLegalPage('Support', body));
+});
 
 app.get('/api/vapid-public-key', (req, res) => {
   res.json({ publicKey: webPushConfigured ? process.env.VAPID_PUBLIC_KEY : '' });
@@ -948,9 +1133,9 @@ app.delete('/api/blocks/:blockedId', ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
-// No review dashboard yet — reports just land in Supabase (user_reports) for
-// manual review later. Keeping it this minimal was an explicit choice, not
-// an oversight: the mechanism and storage are the actual ask right now.
+// Still no in-app review dashboard — reports land in Supabase (user_reports)
+// and now also trigger an email to ADMIN_EMAIL so they don't just sit
+// silently; acting on one (banning) is still a manual Table Editor flip.
 app.post('/api/reports', ah(async (req, res) => {
   const userId = resolveUserId(req, req.body.userId);
   const { reportedId, reason } = req.body;
@@ -958,10 +1143,12 @@ app.post('/api/reports', ah(async (req, res) => {
     return res.status(400).json({ error: 'reportedId and reason are required' });
   }
   if (userId === reportedId) return res.status(400).json({ error: "You can't report yourself" });
+  const cleanReason = reason.trim().slice(0, 500);
   const { error } = await supabase.from('user_reports').insert({
-    reporter_id: userId, reported_id: reportedId, reason: reason.trim().slice(0, 500), created_at: Date.now()
+    reporter_id: userId, reported_id: reportedId, reason: cleanReason, created_at: Date.now()
   });
   if (error) return res.status(500).json({ error: 'Could not submit report' });
+  notifyAdminOfReport(userId, reportedId, cleanReason).catch(() => {});
   res.json({ ok: true });
 }));
 
@@ -989,6 +1176,7 @@ app.post('/api/course-ratings', ah(async (req, res) => {
   }
   const r = parseInt(rating);
   if (r < 1 || r > 5) return res.status(400).json({ error: 'rating must be between 1 and 5' });
+  if (await isBanned(raterId)) return res.status(403).json(BANNED_ERROR);
   const { error } = await supabase.from('course_ratings').upsert({
     course_name: courseName.trim(), rater_id: raterId, rater_name: raterName,
     rating: r, comment: comment || '', created_at: Date.now(),
@@ -1038,6 +1226,7 @@ app.post('/api/course-requests', ah(async (req, res) => {
   if (!userId || !courseName || !courseName.trim()) {
     return res.status(400).json({ error: 'userId and courseName are required' });
   }
+  if (await isBanned(userId)) return res.status(403).json(BANNED_ERROR);
   const { data, error } = await supabase.from('course_requests').insert({
     course_name: courseName.trim(),
     user_id: userId,

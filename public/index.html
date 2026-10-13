@@ -183,6 +183,12 @@ const state = {
 // time it's captured (the welcome-gate checkbox) — bump it if these
 // policies ever change in a way that should prompt re-consent.
 const LEGAL_POLICY_VERSION = '2026-10-12';
+
+// Hides the Google/Apple buttons without deleting the OAuth code behind
+// them — neither provider is enabled on the Supabase project yet, and
+// Apple's sign-in flow isn't using their native API (a separate, bigger
+// change). Flip this back to true once both are properly set up.
+const SHOW_SOCIAL_LOGIN = false;
 const LEGAL_EFFECTIVE_DATE = 'October 12, 2026';
 // Standing availability tags — fixed vocabulary, mirrors AVAILABILITY_TAGS
 // in server.js.
@@ -1615,13 +1621,15 @@ function authFormFieldsHtml(mode, idPrefix){
       <button class="btn btn-primary" id="${idPrefix}-submit" style="width:100%;" ${state.authBusy ? 'disabled' : ''}>${state.authBusy ? 'Please wait…' : heading}</button>
     </div>
     <div class="reset-link" id="${idPrefix}-switch">${switchLabel}</div>
-    <div style="display:flex; align-items:center; gap:10px; margin:18px 0;">
-      <div style="flex:1; height:1px; background:var(--line);"></div>
-      <span style="font-size:11px; opacity:0.68;">OR</span>
-      <div style="flex:1; height:1px; background:var(--line);"></div>
-    </div>
-    <button class="btn btn-ghost" data-oauth-provider="google" style="width:100%; margin-bottom:10px;" ${state.authBusy ? 'disabled' : ''}>Continue with Google</button>
-    <button class="btn btn-ghost" data-oauth-provider="apple" style="width:100%;" ${state.authBusy ? 'disabled' : ''}>Continue with Apple</button>
+    ${SHOW_SOCIAL_LOGIN ? `
+      <div style="display:flex; align-items:center; gap:10px; margin:18px 0;">
+        <div style="flex:1; height:1px; background:var(--line);"></div>
+        <span style="font-size:11px; opacity:0.68;">OR</span>
+        <div style="flex:1; height:1px; background:var(--line);"></div>
+      </div>
+      <button class="btn btn-ghost" data-oauth-provider="google" style="width:100%; margin-bottom:10px;" ${state.authBusy ? 'disabled' : ''}>Continue with Google</button>
+      <button class="btn btn-ghost" data-oauth-provider="apple" style="width:100%;" ${state.authBusy ? 'disabled' : ''}>Continue with Apple</button>
+    ` : ''}
   `;
 }
 
