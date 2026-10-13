@@ -137,7 +137,7 @@ HOW TO TEST
    the Sign-In Required fields above — tap "Log in" on the welcome
    screen, not "Sign up" or "Continue as guest").
 2. You'll land on the Discover tab. A round at "Bethpage Black Golf
-   Course" on 2026-10-27, hosted by "Foursome Demo Host," is already
+   Course" on 2026-11-17, hosted by "Foursome Demo Host," is already
    visible — this demonstrates browsing open rounds.
 3. Go to the "My Rounds" tab. Under rounds you've joined, you'll see
    that round with status "Approved" — this demonstrates the join
