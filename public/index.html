@@ -54,14 +54,14 @@
     letter-spacing:0.5px;
     color:var(--fairway);
   }
-  .who{ font-size:11px; opacity:0.55; cursor:pointer; }
+  .who{ font-size:11px; opacity:0.68; cursor:pointer; }
   .content{ flex:1; padding:16px 18px calc(90px + env(safe-area-inset-bottom)); overflow-y:auto; }
   h1.screen-title{ font-size:21px; margin:4px 0 14px; font-weight:600; }
   .card{ background:#fff; border:1px solid var(--line); border-radius:16px; padding:14px; margin-bottom:12px; }
   .card-top{display:flex; justify-content:space-between; align-items:baseline;}
   .course-name{font-weight:700; font-size:15px;}
   .hcp{ font-family:'Courier New', monospace; font-size:12px; background:var(--sand); padding:2px 7px; border-radius:5px; font-weight:700; }
-  .meta{font-size:12.5px; opacity:0.65; margin-top:3px;}
+  .meta{font-size:12.5px; opacity:0.68; margin-top:3px;}
   .notes{font-size:12.5px; margin-top:8px; opacity:0.8;}
   .row{display:flex; gap:8px; margin-top:10px;}
   .btn{ border:none; border-radius:10px; padding:9px 0; flex:1; font-size:13px; font-weight:600; cursor:pointer; }
@@ -69,13 +69,13 @@
   .btn-primary:disabled{opacity:0.4; cursor:default;}
   .btn-ghost{background:transparent; border:1px solid var(--line); color:var(--ink);}
   .btn-deny{background:transparent; border:1px solid var(--flag); color:var(--flag);}
-  .empty{ text-align:center; padding:50px 20px; opacity:0.55; font-size:13.5px; }
+  .empty{ text-align:center; padding:50px 20px; opacity:0.68; font-size:13.5px; }
   label{ display:block; font-size:12px; font-weight:600; margin:14px 0 5px; opacity:0.75; }
   input, select, textarea{ width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:14px; background:#fff; font-family:inherit; color:var(--ink); }
   textarea{resize:vertical; min-height:60px;}
   .form-actions{margin-top:20px;}
   .navbar{ position:fixed; bottom:0; left:50%; transform:translateX(-50%); width:100%; max-width:420px; display:flex; background:#fff; border-top:1px solid var(--line); padding-bottom: max(10px, env(safe-area-inset-bottom)); }
-  .navitem{ flex:1; text-align:center; padding:11px 0 9px; font-size:11px; font-weight:600; opacity:0.45; cursor:pointer; }
+  .navitem{ flex:1; text-align:center; padding:11px 0 9px; font-size:11px; font-weight:600; opacity:0.68; cursor:pointer; }
   .navitem.active{opacity:1; color:var(--fairway);}
   .pill-row{display:flex; gap:6px; flex-wrap:wrap; margin-top:8px;}
   .pill{font-size:11px; padding:3px 8px; border-radius:20px; border:1px solid var(--line);}
@@ -83,10 +83,10 @@
   .status-tag{font-size:11px; font-weight:700; padding:2px 8px; border-radius:20px;}
   .status-pending{background:var(--sand); color:var(--ink);}
   .status-approved{background:var(--turf); color:#fff;}
-  .status-denied{background:#eee; color:#999;}
+  .status-denied{background:#eee; color:#555;}
   .toast{ position:fixed; bottom:80px; left:50%; transform:translateX(-50%); background:var(--ink); color:#fff; padding:10px 18px; border-radius:20px; font-size:13px; opacity:0; transition:opacity 0.25s; pointer-events:none; max-width:380px; text-align:center; z-index:50; }
   .toast.show{opacity:0.95;}
-  .loading{ text-align:center; padding:60px 20px; opacity:0.5; font-size:13.5px; }
+  .loading{ text-align:center; padding:60px 20px; opacity:0.68; font-size:13.5px; }
   .splash{
     height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center;
     background:#16281B;
@@ -96,19 +96,33 @@
     color:#F6F3EC; letter-spacing:2px; line-height:1.15; text-align:center;
   }
   .splash-rule{ width:120px; height:3px; background:#C9A25C; margin:10px 0; }
-  .reset-link{ display:block; text-align:center; font-size:11px; opacity:0.4; margin-top:24px; }
-  .settings-group-label{ font-size:12px; font-weight:700; opacity:0.55; margin:18px 0 8px; }
+  .reset-link{ display:block; text-align:center; font-size:11px; opacity:0.68; margin-top:24px; cursor:pointer; }
+  .settings-group-label{ font-size:12px; font-weight:700; opacity:0.68; margin:18px 0 8px; }
   .settings-group-label:first-child{ margin-top:4px; }
   .settings-card{ background:#fff; border:1px solid var(--line); border-radius:16px; overflow:hidden; margin-bottom:4px; }
   .settings-card.danger{ border-color:var(--flag); }
   .settings-row{ display:flex; justify-content:space-between; align-items:center; padding:13px 14px; border-top:1px solid var(--line); font-size:14px; cursor:pointer; }
   .settings-row:first-child{ border-top:none; }
-  .settings-row .settings-row-sub{ font-size:11px; opacity:0.55; margin-top:2px; }
+  .settings-row .settings-row-sub{ font-size:11px; opacity:0.68; margin-top:2px; }
   .settings-row.danger{ color:var(--flag); }
+
+  /* Keyboard focus — every native control (button/input/select/textarea/a)
+     plus every div/span retrofitted with role="button" by
+     enhanceKeyboardA11y() gets a visible ring. :focus-visible (not plain
+     :focus) so mouse/touch clicks don't show a ring, only actual keyboard
+     navigation does. */
+  button:focus-visible, input:focus-visible, select:focus-visible,
+  textarea:focus-visible, a:focus-visible, [role="button"]:focus-visible,
+  [role="link"]:focus-visible, [role="checkbox"]:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid var(--fairway);
+    outline-offset: 2px;
+  }
+  input[type="checkbox"]{ accent-color: var(--fairway); }
 </style>
 </head>
 <body>
-<div id="app"><div class="splash"><div class="splash-word">FOUR</div><div class="splash-rule"></div><div class="splash-word">SOME</div></div></div>
+<div id="app" role="main"><div class="splash"><div class="splash-word">FOUR</div><div class="splash-rule"></div><div class="splash-word">SOME</div></div></div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -134,11 +148,13 @@ const state = {
   blockedUsers: null,      // null = not loaded yet, [] = loaded and empty, else [{id, name}]
   session: null,
   entryView: 'welcome',  // 'welcome' | 'signup' | 'login' — only shown pre-profile, brand new visitors
+  entryLegalDoc: null,   // null | 'terms' | 'privacy' — viewing a policy from the welcome-gate consent links
+  consentChecked: false, // the welcome-gate "I am 18+ and agree..." checkbox — gates signup/login/guest
   authOverlay: null,     // null | 'signup' | 'login' — "create an account" overlay for existing guests
   authBusy: false,
   authError: '',
   showSettings: false,
-  settingsView: 'main',  // 'main' | 'changePassword' | 'help' | 'contact' | 'terms' | 'privacy' | 'deleteConfirm'
+  settingsView: 'main',  // 'main' | 'changePassword' | 'help' | 'contact' | 'terms' | 'privacy' | 'cookies' | 'refund' | 'deleteConfirm'
   settingsBusy: false,
   settingsError: '',
   bookSearch: '',
@@ -157,11 +173,17 @@ const state = {
   courseRatingBusy: false
 };
 
-// Real Terms of Service / Privacy Policy / Help content — kept in sync
-// wording-for-wording with foursome-mobile/src/legalContent.js, so both
-// platforms show the same policy. Each section is
-// { h: heading, p: [paragraphs], list: [bullet items] } — list/multiple p
-// entries are both optional.
+// Real Terms of Service / Privacy Policy / Cookie Policy / Refund Policy /
+// Help content — kept in sync wording-for-wording with
+// foursome-mobile/src/legalContent.js, so both platforms show the same
+// policy. Each section is { h: heading, p: [paragraphs], list: [bullet
+// items] } — list/multiple p entries are both optional.
+//
+// LEGAL_POLICY_VERSION is stamped onto a user's consent record the one
+// time it's captured (the welcome-gate checkbox) — bump it if these
+// policies ever change in a way that should prompt re-consent.
+const LEGAL_POLICY_VERSION = '2026-10-12';
+const LEGAL_EFFECTIVE_DATE = 'October 12, 2026';
 // Standing availability tags — fixed vocabulary, mirrors AVAILABILITY_TAGS
 // in server.js.
 const AVAILABILITY_OPTIONS = [
@@ -181,7 +203,7 @@ const TERMS_SECTIONS = [
   { h: 'The short version', p: ["Foursome helps golfers post open tee times and find groups to play with. Be honest in your profile, be respectful to other golfers, and use good judgment when meeting people in person — just like you would with any app that connects you with strangers. The rest of this page spells out the details."] },
   { h: 'Who can use Foursome', p: ["You must be at least 18 years old to create a Foursome account or use the app. By using Foursome, you're confirming that you meet this requirement and that the information in your profile is accurate."] },
   { h: 'Your account', p: ["You can use Foursome as a guest (a local profile stored only on your device, with no email or password) or with a full account (email and password, managed by our authentication provider, Supabase). Either way, you're responsible for the activity on your account and for keeping your login credentials private. If you're signed in on a device you share with others, remember to sign out when you're done."] },
-  { h: "What Foursome is — and isn't", p: ['Foursome is a place for golfers to post rounds they\'ve already booked and invite others to join, or to browse rounds other golfers have posted. We are not a booking service, and posting or joining a round through Foursome does not reserve a tee time at any course. The "Book a Tee Time" feature is a waitlist: it tells us which courses golfers want to see supported, and lets us notify you if that changes — it does not book anything on your behalf.'] },
+  { h: "What Foursome is — and isn't", p: ['Foursome is a place for golfers to post rounds they\'ve already booked and invite others to join, or to browse rounds other golfers have posted. We are not a booking service, and posting or joining a round through Foursome does not reserve a tee time at any course. The "Book a Tee Time" feature is a waitlist: it tells us which courses golfers want to see supported, and lets us notify you if that changes — it does not book anything on your behalf.', 'Foursome is not affiliated with, endorsed by, or operated in partnership with any golf course, golf club, or booking platform. Course names and locations shown in the app come from OpenStreetMap, a public, community-run map — not from the courses themselves.'] },
   { h: 'Posting and joining rounds', p: ["When you post a round, the details you enter (course, date, time, number of spots, handicap range, pace, and any notes) are visible to other Foursome users. When someone requests to join your round, you decide whether to approve or deny them — Foursome doesn't guarantee that any request will be approved, or that a posted round will fill up. You're responsible for the accuracy of what you post, including making sure you've actually got a tee time to share."] },
   { h: 'Meeting people in person', p: ["Foursome connects you with other golfers, but the actual round happens off our platform, in person. We don't run background checks on users and can't guarantee the identity, behavior, or skill level of anyone you meet through the app. Use the same judgment you would with any app that connects you to strangers: consider meeting for the first time at the course itself, tell someone your plans, and trust your instincts. If something feels off, you can leave, block the other user, and report them to us."] },
   { h: 'Messaging and conduct', p: ["Chat within a round is only visible to that round's host and approved participants. When using Foursome — in chat, in your bio, in round notes, or anywhere else — don't:"], list: ['Harass, threaten, or discriminate against anyone', 'Post spam, scams, or unrelated advertising', 'Impersonate another person or misrepresent your handicap or identity', "Share anyone else's personal information without their consent", 'Use Foursome for anything illegal'] },
@@ -201,7 +223,7 @@ const PRIVACY_SECTIONS = [
     'Profile info: your name, home course, handicap, and bio (if you add one) — set when you create your profile and visible to other Foursome users.',
     'Rounds, messages, ratings, and reports: the tee times you post or request to join, chat messages within a round, ratings and comments you leave for other players, and reports you file against another user.',
     'Location: when you tap "Use my location," your device\'s coordinates are used to sort and filter rounds by distance, and to search for nearby golf courses. That distance calculation happens on your device — we don\'t store your location tied to your account. If you search for nearby courses, your coordinates are sent to our server for that one search (so it can look up courses via OpenStreetMap on your behalf); we cache course results generally, not tied to your identity, and don\'t retain your coordinates afterward.',
-    "Push notification data: if you turn on notifications, your browser gives us a push subscription (an anonymous endpoint provided by your browser) so we can alert you about join requests, approvals, and messages.",
+    "Push notification data: if you turn on notifications, we store a push subscription — an anonymous endpoint provided by your browser (website) or an Expo push token (mobile app) — so we can alert you about join requests, approvals, and messages.",
   ] },
   { h: 'How we use your information', list: ['To run the core features — posting/joining rounds, matching you with other golfers, messaging within a round, and showing ratings and mutual-round history on profiles', 'To help you find nearby rounds and courses when you choose to share your location', 'To respond to reports and enforce our Terms of Service', "To send you notifications you've opted into", 'To keep Foursome secure and working reliably'], p: ["We don't use your information for advertising, and we don't sell it to third parties."] },
   { h: 'Who can see what', p: ["Your name, home course, handicap, bio, and rating are visible to other Foursome users, particularly anyone viewing a round you're hosting or joining. Round chat is only visible to that round's host and approved participants. Reports you file are visible only to us."] },
@@ -212,6 +234,27 @@ const PRIVACY_SECTIONS = [
   { h: 'Security', p: ["We take reasonable steps to protect your information, but no app or service can guarantee complete security. Please use a strong, unique password if you create a full account."] },
   { h: 'Changes to this policy', p: ["We may update this policy as Foursome changes. If we make a significant change, we'll do our best to let you know in the app."] },
   { h: 'Contact', p: ['Questions about your data or this policy? Email us at foursomeapp.golf@gmail.com.'] },
+];
+
+const COOKIE_SECTIONS = [
+  { h: 'The short version', p: ["Foursome's website doesn't use cookies, and neither the website nor the mobile app use any advertising or tracking cookies, pixels, or third-party analytics. We use a small amount of storage on your own device to keep the app working the way you'd expect — described below."] },
+  { h: "What we store on your device", list: [
+    "Your active profile/account id, so the app knows who you are between visits without you signing in every time.",
+    "The list of local guest profiles you've used on this device, so you can switch between them.",
+    "Your last shared location, so distance sorting keeps working across visits without asking again.",
+    "Whether you've turned push notifications on or off.",
+    "On the website only: a short-lived marker used only during the few seconds of a Google/Apple sign-in redirect, deleted immediately after it's used.",
+  ] },
+  { h: 'Staying signed in', p: ["If you create a full account, our authentication provider (Supabase) keeps you signed in using its own secure storage on your device. This is standard session storage, not an advertising cookie, and exists only so you don't have to log in every time you open Foursome."] },
+  { h: 'Your choices', p: ["None of this storage is optional in the sense of needing your permission to function — it's what makes core features (staying signed in, remembering your location preference, keeping notifications set the way you left them) work at all. You can clear it any time through your browser's or device's own settings, which will simply sign you out and reset those preferences locally; it won't delete your account or data from our servers."] },
+  { h: 'Changes to this policy', p: ["We may update this policy as Foursome changes. If we make a significant change, we'll do our best to let you know in the app."] },
+  { h: 'Contact', p: ['Questions about this policy? Email us at foursomeapp.golf@gmail.com.'] },
+];
+
+const REFUND_SECTIONS = [
+  { h: 'The short version', p: ["Foursome is currently free to use, with no paid features enabled. Since there's nothing to buy, there's nothing to refund."] },
+  { h: 'If that changes', p: ["If Foursome ever introduces a paid plan, we'll update this policy before charging anyone, so it accurately describes how refunds work for whatever's actually offered at that time."] },
+  { h: 'Contact', p: ['Questions about this policy? Email us at foursomeapp.golf@gmail.com.'] },
 ];
 
 const HELP_SECTIONS = [
@@ -802,7 +845,15 @@ async function loadAvailablePlayers(){
 
 async function saveProfile(name, homeCourse, handicap, bio, availability){
   try{
-    const profile = await apiPost('/api/profiles', { userId: state.myUserId, name, homeCourse, handicap, bio: bio || '', availability: availability || [] });
+    // Only matters the first time this creates a users row (saveProfile is
+    // also used to edit an existing profile) — the server ignores these
+    // fields on an update. See recordConsentIfNeeded() at the welcome gate.
+    let consent = null;
+    try{ consent = JSON.parse(localStorage.getItem('foursome_consent') || 'null'); }catch(e){ /* ignore */ }
+    const profile = await apiPost('/api/profiles', {
+      userId: state.myUserId, name, homeCourse, handicap, bio: bio || '', availability: availability || [],
+      termsAgreedAt: consent ? consent.agreedAt : null, policyVersion: consent ? consent.policyVersion : null
+    });
     state.profile = profile;
     if(!state.profileList.some(p => p.id === state.myUserId)){
       state.profileList.push({ id: state.myUserId, name });
@@ -907,9 +958,9 @@ function starPickerHtml(teetimeId, rateeId, existingRating){
   }
   let stars = '';
   for(let i=1;i<=5;i++){
-    stars += `<span class="star-pick" data-teetime="${teetimeId}" data-ratee="${rateeId}" data-star="${i}" style="cursor:pointer; font-size:17px; margin-right:1px;">☆</span>`;
+    stars += `<span class="star-pick" data-teetime="${teetimeId}" data-ratee="${rateeId}" data-star="${i}" aria-label="Rate ${i} star${i===1?'':'s'}" style="cursor:pointer; font-size:17px; margin-right:1px;">☆</span>`;
   }
-  return `<div class="row" style="align-items:center; margin-top:6px;">${stars}<span style="font-size:11px; opacity:0.55; margin-left:6px;">Tap to rate</span></div>`;
+  return `<div class="row" style="align-items:center; margin-top:6px;">${stars}<span style="font-size:11px; opacity:0.68; margin-left:6px;">Tap to rate</span></div>`;
 }
 
 function urlBase64ToUint8Array(base64String){
@@ -1103,8 +1154,10 @@ function renderSettingsOverlay(){
   else if(state.settingsView === 'deleteConfirm') body = renderSettingsDeleteConfirm();
   else if(state.settingsView === 'help') body = renderSettingsDoc('Help & FAQ', HELP_SECTIONS);
   else if(state.settingsView === 'contact') body = renderSettingsContact();
-  else if(state.settingsView === 'terms') body = renderSettingsDoc('Terms of Service', TERMS_SECTIONS);
-  else if(state.settingsView === 'privacy') body = renderSettingsDoc('Privacy Policy', PRIVACY_SECTIONS);
+  else if(state.settingsView === 'terms') body = renderSettingsDoc('Terms of Service', TERMS_SECTIONS, true);
+  else if(state.settingsView === 'privacy') body = renderSettingsDoc('Privacy Policy', PRIVACY_SECTIONS, true);
+  else if(state.settingsView === 'cookies') body = renderSettingsDoc('Cookie Policy', COOKIE_SECTIONS, true);
+  else if(state.settingsView === 'refund') body = renderSettingsDoc('Refund Policy', REFUND_SECTIONS, true);
   else if(state.settingsView === 'blocked') body = renderSettingsBlocked();
   else body = renderSettingsMain();
 
@@ -1112,7 +1165,7 @@ function renderSettingsOverlay(){
     <div id="settings-overlay" style="position:fixed; inset:0; background:var(--paper); z-index:75; display:flex; flex-direction:column;">
       <div style="padding: max(14px, env(safe-area-inset-top)) 18px 12px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; flex-shrink:0; background:#fff;">
         <div style="font-weight:700; font-size:15px;">Settings</div>
-        <div id="settings-close" style="cursor:pointer; font-size:13px; opacity:0.6; padding:6px;">Close</div>
+        <div id="settings-close" style="cursor:pointer; font-size:13px; opacity:0.68; padding:6px;">Close</div>
       </div>
       <div class="content" style="flex:1; overflow-y:auto;">${body}</div>
     </div>
@@ -1156,6 +1209,8 @@ function renderSettingsMain(){
       <div class="settings-row" data-settings-nav="contact"><span>Contact us</span><span>›</span></div>
       <div class="settings-row" data-settings-nav="terms"><span>Terms of Service</span><span>›</span></div>
       <div class="settings-row" data-settings-nav="privacy"><span>Privacy Policy</span><span>›</span></div>
+      <div class="settings-row" data-settings-nav="cookies"><span>Cookie Policy</span><span>›</span></div>
+      <div class="settings-row" data-settings-nav="refund"><span>Refund Policy</span><span>›</span></div>
     </div>
 
     <div class="settings-group-label">DANGER ZONE</div>
@@ -1201,20 +1256,29 @@ function renderSettingsChangePassword(){
   `;
 }
 
-// Renders { h, p: [...], list: [...] } sections — used for Terms/Privacy/
-// Help, which are real, structured documents rather than a single paragraph.
-function renderSettingsDoc(title, sections){
-  const body = sections.map((s, i) => `
+// Shared by the Settings doc viewer and the pre-profile welcome gate's
+// legal-doc viewer (reached by tapping a link next to the consent
+// checkbox, before any profile/session exists).
+function renderDocBody(sections){
+  return sections.map((s, i) => `
     <div ${i > 0 ? 'style="margin-top:14px;"' : ''}>
       ${s.h ? `<div style="font-weight:700; font-size:13px; color:var(--ink); margin-bottom:2px;">${escapeHtml(s.h)}</div>` : ''}
       ${(s.p || []).map((para, pi) => `<div class="notes" style="${pi === 0 && !s.h ? 'margin-top:0;' : ''}">${escapeHtml(para)}</div>`).join('')}
       ${s.list ? `<ul style="margin:6px 0 0; padding-left:18px;">${s.list.map(item => `<li class="notes" style="margin-top:4px;">${escapeHtml(item)}</li>`).join('')}</ul>` : ''}
     </div>
   `).join('');
+}
+
+// Renders { h, p: [...], list: [...] } sections — used for Terms/Privacy/
+// Cookie/Refund/Help, which are real, structured documents rather than a
+// single paragraph. showEffectiveDate is true for the four actual legal
+// policies, false for Help (which isn't a policy and has no version).
+function renderSettingsDoc(title, sections, showEffectiveDate){
   return `
     <h1 class="screen-title">${escapeHtml(title)}</h1>
-    <div class="card">${body}</div>
-    <div class="reset-link" data-settings-nav="main">Back</div>
+    ${showEffectiveDate ? `<div class="meta" style="margin-top:-10px; margin-bottom:12px;">Effective ${escapeHtml(LEGAL_EFFECTIVE_DATE)}</div>` : ''}
+    <div class="card">${renderDocBody(sections)}</div>
+    <div class="reset-link" data-settings-nav="main" tabindex="0" role="button">Back</div>
   `;
 }
 
@@ -1310,7 +1374,69 @@ function attachSettingsHandlers(){
   }
 }
 
+// Retrofits keyboard support onto this app's many ad-hoc clickable <div>s
+// and <span>s (built as plain template strings, not semantic buttons) —
+// every selector here is one the app actually attaches a click listener
+// to elsewhere (confirmed by grepping every addEventListener('click', ...)
+// call), so nothing here is falsely made to look interactive. Native
+// <button>/<a>/<input> elements are skipped since they're already
+// keyboard-operable. Called after every render() via the wrapper below, so
+// newly-inserted elements are covered too.
+const KEYBOARD_ENHANCE_SELECTOR = [
+  '.navitem', '.reset-link', '#who-btn',
+  '[data-settings-nav]', '[data-settings-action]', '[data-view-user]',
+  '[data-star]', '[data-select-course]', '[data-entry-legal]'
+].join(',');
+
+function enhanceKeyboardA11y(){
+  document.querySelectorAll(KEYBOARD_ENHANCE_SELECTOR).forEach(el => {
+    if(el.tagName === 'BUTTON' || el.tagName === 'A' || el.tagName === 'INPUT') return;
+    if(!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '0');
+    if(!el.hasAttribute('role')) el.setAttribute('role', 'button');
+  });
+}
+
+// One delegated listener for the whole app's lifetime handles Enter/Space
+// activation for every element enhanceKeyboardA11y() touches (now or in the
+// future), plus the handful (the welcome-gate Terms/Privacy links) that
+// keep role="link" instead — simulating the native <button>/<a> behavior
+// these divs/spans don't get for free. A real <a> activates on Enter only;
+// a real <button> activates on Enter or Space — this matches that, and
+// prevents Space from scrolling the page while a retrofitted button-role
+// element is focused, same as a real button would.
+document.addEventListener('keydown', e => {
+  if(e.key !== 'Enter' && e.key !== ' ') return;
+  const el = document.activeElement;
+  if(!el || el.tagName === 'BUTTON' || el.tagName === 'A') return;
+  const role = el.getAttribute('role');
+  if(role !== 'button' && role !== 'link') return;
+  if(role === 'link' && e.key === ' ') return;
+  e.preventDefault();
+  el.click();
+});
+
+// Every <label>...</label> in this app is immediately followed by the
+// <input>/<select>/<textarea> it describes (verified by reading every
+// label/control pair in the file) — pairs them with a real for/id
+// association so screen readers announce the field name, instead of the
+// merely-visual relationship a bare adjacent <label> gives sighted users.
+function enhanceLabels(){
+  document.querySelectorAll('label').forEach(label => {
+    if(label.hasAttribute('for')) return;
+    const next = label.nextElementSibling;
+    if(!next || !['INPUT','SELECT','TEXTAREA'].includes(next.tagName)) return;
+    if(!next.id) return;
+    label.setAttribute('for', next.id);
+  });
+}
+
 function render(){
+  renderImpl();
+  enhanceKeyboardA11y();
+  enhanceLabels();
+}
+
+function renderImpl(){
   const app = document.getElementById('app');
 
   if(state.loading){
@@ -1337,23 +1463,32 @@ function render(){
   else if(state.tab === 'book') body = renderBook();
   else if(state.tab === 'profile') body = renderProfile();
 
+  // Any full-screen overlay (switcher/chat/settings/auth/user profile) visually
+  // covers this shell completely, but without `inert` the topbar/content/navbar
+  // underneath would stay in the tab order and accessibility tree — reachable
+  // by keyboard or a screen reader even though nothing is clickable there
+  // through the overlay. `inert` removes it from both until the overlay closes.
+  const anyOverlayOpen = state.showSwitcher || state.chatTeetimeId || state.showSettings || state.authOverlay || state.viewingUserId;
+
   app.innerHTML = `
-    <div class="topbar">
-      <svg class="logo-mark" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-        <rect x="4" y="4" width="192" height="192" rx="40" fill="#16281B"/>
-        <text x="100" y="88" font-family="Georgia, 'Times New Roman', serif" font-weight="bold" font-size="38" fill="#F6F3EC" text-anchor="middle" letter-spacing="1">FOUR</text>
-        <line x1="52" y1="100" x2="148" y2="100" stroke="#C9A25C" stroke-width="3"/>
-        <text x="100" y="148" font-family="Georgia, 'Times New Roman', serif" font-weight="bold" font-size="38" fill="#F6F3EC" text-anchor="middle" letter-spacing="1">SOME</text>
-      </svg>
-      <div class="who" id="who-btn">${escapeHtml(state.profile.name)} ▾</div>
-    </div>
-    <div class="content">${body}</div>
-    <div class="navbar">
-      <div class="navitem ${state.tab==='discover'?'active':''}" data-tab="discover">Discover</div>
-      <div class="navitem ${state.tab==='post'?'active':''}" data-tab="post">Post Round</div>
-      <div class="navitem ${state.tab==='myrounds'?'active':''}" data-tab="myrounds">My Rounds</div>
-      <div class="navitem ${state.tab==='book'?'active':''}" data-tab="book">Book</div>
-      <div class="navitem ${state.tab==='profile'?'active':''}" data-tab="profile">Profile</div>
+    <div id="main-shell" ${anyOverlayOpen ? 'inert' : ''}>
+      <div class="topbar">
+        <svg class="logo-mark" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Foursome logo">
+          <rect x="4" y="4" width="192" height="192" rx="40" fill="#16281B"/>
+          <text x="100" y="88" font-family="Georgia, 'Times New Roman', serif" font-weight="bold" font-size="38" fill="#F6F3EC" text-anchor="middle" letter-spacing="1">FOUR</text>
+          <line x1="52" y1="100" x2="148" y2="100" stroke="#C9A25C" stroke-width="3"/>
+          <text x="100" y="148" font-family="Georgia, 'Times New Roman', serif" font-weight="bold" font-size="38" fill="#F6F3EC" text-anchor="middle" letter-spacing="1">SOME</text>
+        </svg>
+        <div class="who" id="who-btn">${escapeHtml(state.profile.name)} ▾</div>
+      </div>
+      <div class="content">${body}</div>
+      <div class="navbar" role="navigation" aria-label="Main">
+        <div class="navitem ${state.tab==='discover'?'active':''}" data-tab="discover">Discover</div>
+        <div class="navitem ${state.tab==='post'?'active':''}" data-tab="post">Post Round</div>
+        <div class="navitem ${state.tab==='myrounds'?'active':''}" data-tab="myrounds">My Rounds</div>
+        <div class="navitem ${state.tab==='book'?'active':''}" data-tab="book">Book</div>
+        <div class="navitem ${state.tab==='profile'?'active':''}" data-tab="profile">Profile</div>
+      </div>
     </div>
     ${state.showSwitcher ? renderSwitcher() : ''}
     ${state.chatTeetimeId ? renderChatOverlay() : ''}
@@ -1400,7 +1535,7 @@ function renderSwitcher(){
   return `
     <div id="switcher-overlay" style="position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:60; display:flex; align-items:flex-end; justify-content:center;">
       <div style="background:#fff; width:100%; max-width:420px; border-radius:18px 18px 0 0; padding:18px 20px calc(26px + env(safe-area-inset-bottom)); max-height:70vh; overflow-y:auto;">
-        <div style="font-size:12px; font-weight:700; opacity:0.5; margin-bottom:10px;">TEST PROFILES ON THIS DEVICE</div>
+        <div style="font-size:12px; font-weight:700; opacity:0.68; margin-bottom:10px;">TEST PROFILES ON THIS DEVICE</div>
         ${state.profileList.map(p => `
           <div class="request-row" style="padding:10px 0;">
             <span>${escapeHtml(p.name)}${p.id === state.myUserId ? ' (active)' : ''}</span>
@@ -1408,7 +1543,7 @@ function renderSwitcher(){
           </div>
         `).join('')}
         <button class="btn btn-primary" id="switcher-new" style="width:100%; margin-top:16px;">+ Create new test profile</button>
-        <div style="text-align:center; font-size:11px; opacity:0.45; margin-top:14px; cursor:pointer;" id="switcher-close">Close</div>
+        <div style="text-align:center; font-size:11px; opacity:0.68; margin-top:14px; cursor:pointer;" id="switcher-close">Close</div>
       </div>
     </div>
   `;
@@ -1430,23 +1565,23 @@ function renderChatOverlay(){
       <div style="padding: max(14px, env(safe-area-inset-top)) 18px 12px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; flex-shrink:0; background:#fff;">
         <div>
           <div style="font-weight:700; font-size:15px;">${escapeHtml(state.chatCourseName)}</div>
-          <div style="font-size:11px; opacity:0.55;">Round chat</div>
+          <div style="font-size:11px; opacity:0.68;">Round chat</div>
         </div>
-        <div id="chat-close" style="cursor:pointer; font-size:13px; opacity:0.6; padding:6px;">Close</div>
+        <div id="chat-close" style="cursor:pointer; font-size:13px; opacity:0.68; padding:6px;">Close</div>
       </div>
       <div id="chat-messages" style="flex:1; overflow-y:auto; padding:14px 18px;">
         ${state.chatMessages.length === 0 ? '<div class="empty">No messages yet. Say hi 👋</div>' : state.chatMessages.map(m => {
           const isMe = m.senderId === state.myUserId;
           return `
             <div style="margin-bottom:10px; display:flex; flex-direction:column; align-items:${isMe ? 'flex-end' : 'flex-start'};">
-              ${!isMe ? `<div style="font-size:11px; opacity:0.5; margin-bottom:2px;">${escapeHtml(m.senderName)}</div>` : ''}
+              ${!isMe ? `<div style="font-size:11px; opacity:0.68; margin-bottom:2px;">${escapeHtml(m.senderName)}</div>` : ''}
               <div style="max-width:75%; padding:9px 13px; border-radius:14px; background:${isMe ? 'var(--fairway)' : '#fff'}; color:${isMe ? '#fff' : 'var(--ink)'}; border:${isMe ? 'none' : '1px solid var(--line)'}; font-size:13.5px; word-wrap:break-word;">${escapeHtml(m.text)}</div>
             </div>
           `;
         }).join('')}
       </div>
       <div style="display:flex; gap:8px; padding:10px 14px; padding-bottom:max(10px, env(safe-area-inset-bottom)); border-top:1px solid var(--line); background:#fff; flex-shrink:0;">
-        <input id="chat-input" placeholder="Message..." style="flex:1; margin:0;" />
+        <input id="chat-input" placeholder="Message..." aria-label="Message" style="flex:1; margin:0;" />
         <button id="chat-send" class="btn btn-primary" style="flex:none; padding:10px 18px;">Send</button>
       </div>
     </div>
@@ -1482,7 +1617,7 @@ function authFormFieldsHtml(mode, idPrefix){
     <div class="reset-link" id="${idPrefix}-switch">${switchLabel}</div>
     <div style="display:flex; align-items:center; gap:10px; margin:18px 0;">
       <div style="flex:1; height:1px; background:var(--line);"></div>
-      <span style="font-size:11px; opacity:0.5;">OR</span>
+      <span style="font-size:11px; opacity:0.68;">OR</span>
       <div style="flex:1; height:1px; background:var(--line);"></div>
     </div>
     <button class="btn btn-ghost" data-oauth-provider="google" style="width:100%; margin-bottom:10px;" ${state.authBusy ? 'disabled' : ''}>Continue with Google</button>
@@ -1531,42 +1666,111 @@ function attachAuthFormHandlers(mode, opts){
   });
 }
 
+// title/sections for each doc reachable from the consent-checkbox links,
+// before any profile/session exists (so the Settings overlay isn't
+// available yet to show them).
+const ENTRY_LEGAL_DOCS = {
+  terms: ['Terms of Service', TERMS_SECTIONS],
+  privacy: ['Privacy Policy', PRIVACY_SECTIONS],
+};
+
+function entryConsentCheckboxHtml(){
+  return `
+    <div style="margin-top:22px; text-align:left;">
+      <label for="entry-consent-checkbox" style="display:flex; align-items:flex-start; gap:9px; cursor:pointer; font-weight:400; opacity:1; margin:0; font-size:12.5px; line-height:1.45;">
+        <input type="checkbox" id="entry-consent-checkbox" ${state.consentChecked ? 'checked' : ''} style="width:17px; height:17px; margin-top:1px; flex-shrink:0;" />
+        <span>I am 18 or older and agree to the
+          <span class="entry-legal-link" data-entry-legal="terms" tabindex="0" role="link" style="text-decoration:underline; cursor:pointer;">Terms of Service</span>
+          and
+          <span class="entry-legal-link" data-entry-legal="privacy" tabindex="0" role="link" style="text-decoration:underline; cursor:pointer;">Privacy Policy</span>.
+        </span>
+      </label>
+    </div>
+  `;
+}
+
 function renderEntryGate(){
+  if(state.entryLegalDoc){
+    const [title, sections] = ENTRY_LEGAL_DOCS[state.entryLegalDoc];
+    return `
+      <div class="content" style="padding-top: calc(60px + env(safe-area-inset-top));">
+        <h1 class="screen-title">${escapeHtml(title)}</h1>
+        <div class="meta" style="margin-top:-10px; margin-bottom:12px;">Effective ${escapeHtml(LEGAL_EFFECTIVE_DATE)}</div>
+        <div class="card">${renderDocBody(sections)}</div>
+        <div class="reset-link" id="entry-legal-back" tabindex="0" role="button" style="margin-top:8px;">Back</div>
+      </div>
+    `;
+  }
   if(state.entryView === 'signup' || state.entryView === 'login'){
     return `
       <div class="content" style="padding-top: calc(60px + env(safe-area-inset-top));">
         ${authFormFieldsHtml(state.entryView, 'entry-auth')}
-        <div class="reset-link" id="entry-auth-back" style="margin-top:8px;">Back</div>
+        <div class="reset-link" id="entry-auth-back" tabindex="0" role="button" style="margin-top:8px;">Back</div>
       </div>
     `;
   }
   return `
     <div class="content" style="padding-top: calc(60px + env(safe-area-inset-top)); text-align:center;">
-      <svg style="width:100px; height:100px; border-radius:20px;" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+      <svg style="width:100px; height:100px; border-radius:20px;" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Foursome logo">
         <rect x="4" y="4" width="192" height="192" rx="40" fill="#16281B"/>
         <text x="100" y="88" font-family="Georgia, 'Times New Roman', serif" font-weight="bold" font-size="38" fill="#F6F3EC" text-anchor="middle" letter-spacing="1">FOUR</text>
         <line x1="52" y1="100" x2="148" y2="100" stroke="#C9A25C" stroke-width="3"/>
         <text x="100" y="148" font-family="Georgia, 'Times New Roman', serif" font-weight="bold" font-size="38" fill="#F6F3EC" text-anchor="middle" letter-spacing="1">SOME</text>
       </svg>
       <h1 class="screen-title" style="margin-top:20px;">Welcome</h1>
-      <p style="font-size:13px; opacity:0.65; margin-top:-8px;">Create an account to keep your profile and rounds across devices, or jump straight in as a guest.</p>
+      <p style="font-size:13px; opacity:0.68; margin-top:-8px;">Create an account to keep your profile and rounds across devices, or jump straight in as a guest.</p>
       <div class="form-actions" style="margin-top:28px;">
-        <button class="btn btn-primary" id="entry-signup" style="width:100%; margin-bottom:10px;">Sign up</button>
-        <button class="btn btn-ghost" id="entry-login" style="width:100%; margin-bottom:10px;">Log in</button>
-        <button class="btn btn-ghost" id="entry-guest" style="width:100%;">Continue as guest</button>
+        <button class="btn btn-primary" id="entry-signup" style="width:100%; margin-bottom:10px;" ${state.consentChecked ? '' : 'disabled'}>Sign up</button>
+        <button class="btn btn-ghost" id="entry-login" style="width:100%; margin-bottom:10px;" ${state.consentChecked ? '' : 'disabled'}>Log in</button>
+        <button class="btn btn-ghost" id="entry-guest" style="width:100%;" ${state.consentChecked ? '' : 'disabled'}>Continue as guest</button>
       </div>
+      ${entryConsentCheckboxHtml()}
     </div>
   `;
 }
 
+// Records that the box was checked when they actually proceed (not merely
+// when it's ticked, in case they tick it and then never act) — one
+// permanent local record of when and which policy version they agreed to.
+// Read back by saveProfile() so it can be attached to the one POST
+// /api/profiles call that creates their users row server-side.
+function recordConsentIfNeeded(){
+  if(!localStorage.getItem('foursome_consent')){
+    localStorage.setItem('foursome_consent', JSON.stringify({ agreedAt: Date.now(), policyVersion: LEGAL_POLICY_VERSION }));
+  }
+}
+
 function attachEntryGateHandlers(){
+  if(state.entryLegalDoc){
+    document.getElementById('entry-legal-back').addEventListener('click', () => { state.entryLegalDoc = null; render(); });
+    return;
+  }
   if(state.entryView === 'signup' || state.entryView === 'login'){
     attachAuthFormHandlers(state.entryView, { context: 'entry' });
     return;
   }
-  document.getElementById('entry-signup').addEventListener('click', () => { state.entryView = 'signup'; state.authError = ''; render(); });
-  document.getElementById('entry-login').addEventListener('click', () => { state.entryView = 'login'; state.authError = ''; render(); });
-  document.getElementById('entry-guest').addEventListener('click', continueAsGuest);
+  document.querySelectorAll('[data-entry-legal]').forEach(el => {
+    el.addEventListener('click', () => { state.entryLegalDoc = el.dataset.entryLegal; render(); });
+  });
+  document.getElementById('entry-consent-checkbox').addEventListener('change', e => {
+    state.consentChecked = e.target.checked;
+    render();
+  });
+  document.getElementById('entry-signup').addEventListener('click', () => {
+    if(!state.consentChecked) return;
+    recordConsentIfNeeded();
+    state.entryView = 'signup'; state.authError = ''; render();
+  });
+  document.getElementById('entry-login').addEventListener('click', () => {
+    if(!state.consentChecked) return;
+    recordConsentIfNeeded();
+    state.entryView = 'login'; state.authError = ''; render();
+  });
+  document.getElementById('entry-guest').addEventListener('click', () => {
+    if(!state.consentChecked) return;
+    recordConsentIfNeeded();
+    continueAsGuest();
+  });
 }
 
 function renderAuthOverlay(){
@@ -1574,7 +1778,7 @@ function renderAuthOverlay(){
     <div id="auth-overlay" style="position:fixed; inset:0; background:var(--paper); z-index:80; display:flex; flex-direction:column;">
       <div style="padding: max(14px, env(safe-area-inset-top)) 18px 12px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; flex-shrink:0; background:#fff;">
         <div style="font-weight:700; font-size:15px;">Account</div>
-        <div id="overlay-auth-close" style="cursor:pointer; font-size:13px; opacity:0.6; padding:6px;">Close</div>
+        <div id="overlay-auth-close" style="cursor:pointer; font-size:13px; opacity:0.68; padding:6px;">Close</div>
       </div>
       <div class="content" style="flex:1; overflow-y:auto;">
         ${authFormFieldsHtml(state.authOverlay, 'overlay-auth')}
@@ -1600,7 +1804,7 @@ function renderUserProfileOverlay(){
       <div class="meta">Home course: ${escapeHtml(prof.homeCourse || '—')}</div>
       <div class="pill-row">
         <span class="pill">${escapeHtml(String(prof.handicap))} handicap</span>
-        ${prof.ratingCount > 0 ? `<span class="pill">★${prof.avgRating} (${prof.ratingCount})</span>` : `<span class="pill" style="opacity:0.6;">No ratings yet</span>`}
+        ${prof.ratingCount > 0 ? `<span class="pill">★${prof.avgRating} (${prof.ratingCount})</span>` : `<span class="pill" style="opacity:0.68;">No ratings yet</span>`}
         ${prof.mutualRounds != null ? `<span class="pill">${prof.mutualRounds} mutual round${prof.mutualRounds===1?'':'s'}</span>` : ''}
       </div>
     </div>
@@ -1613,7 +1817,7 @@ function renderUserProfileOverlay(){
     <div id="user-profile-overlay" style="position:fixed; inset:0; background:var(--paper); z-index:72; display:flex; flex-direction:column;">
       <div style="padding: max(14px, env(safe-area-inset-top)) 18px 12px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; flex-shrink:0; background:#fff;">
         <div style="font-weight:700; font-size:15px;">Profile</div>
-        <div id="user-profile-close" style="cursor:pointer; font-size:13px; opacity:0.6; padding:6px;">Close</div>
+        <div id="user-profile-close" style="cursor:pointer; font-size:13px; opacity:0.68; padding:6px;">Close</div>
       </div>
       <div class="content" style="flex:1; overflow-y:auto;">${body}</div>
     </div>
@@ -1632,7 +1836,7 @@ function renderOnboarding(){
   return `
     <div class="content" style="padding-top: calc(60px + env(safe-area-inset-top));">
       <div style="text-align:center; margin-bottom:24px;">
-        <svg style="width:100px; height:100px; border-radius:20px;" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+        <svg style="width:100px; height:100px; border-radius:20px;" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Foursome logo">
           <rect x="4" y="4" width="192" height="192" rx="40" fill="#16281B"/>
           <text x="100" y="88" font-family="Georgia, 'Times New Roman', serif" font-weight="bold" font-size="38" fill="#F6F3EC" text-anchor="middle" letter-spacing="1">FOUR</text>
           <line x1="52" y1="100" x2="148" y2="100" stroke="#C9A25C" stroke-width="3"/>
@@ -1640,7 +1844,7 @@ function renderOnboarding(){
         </svg>
       </div>
       <h1 class="screen-title" style="text-align:center;">Set up your profile</h1>
-      <p style="font-size:13px; opacity:0.65; margin-top:-8px; text-align:center;">This is what other golfers will see before they play with you.</p>
+      <p style="font-size:13px; opacity:0.68; margin-top:-8px; text-align:center;">This is what other golfers will see before they play with you.</p>
       <label>Your name</label>
       <input id="ob-name" placeholder="e.g. Alex Nguyen" />
       <label>Home course</label>
@@ -1756,12 +1960,12 @@ function renderDiscover(){
   // a "here's who's generally free" signal; tapping a card opens the same
   // profile popover used everywhere else (mutual rounds, block, report).
   const availablePlayersHtml = state.availablePlayers.length > 0 ? `
-    <div style="font-size:12px; font-weight:700; opacity:0.55; margin:14px 0 8px;">AVAILABLE PLAYERS</div>
+    <div style="font-size:12px; font-weight:700; opacity:0.68; margin:14px 0 8px;">AVAILABLE PLAYERS</div>
     <div class="card" style="padding:6px 14px;">
       ${state.availablePlayers.map(u => `
         <div class="request-row" style="flex-wrap:wrap; cursor:pointer;" data-view-user="${u.id}">
           <span>${escapeHtml(u.name)}${u.handicap != null ? ` · ${escapeHtml(String(u.handicap))} HCP` : ''}</span>
-          <span style="width:100%; font-size:11px; opacity:0.6; margin-top:2px;">${u.availability.map(availabilityLabel).map(escapeHtml).join(', ')}</span>
+          <span style="width:100%; font-size:11px; opacity:0.68; margin-top:2px;">${u.availability.map(availabilityLabel).map(escapeHtml).join(', ')}</span>
         </div>
       `).join('')}
     </div>
@@ -1778,7 +1982,7 @@ function renderDiscover(){
     ${locationBanner}
     ${filterBar}
     ${availablePlayersHtml}
-    ${state.availablePlayers.length > 0 ? '<div style="font-size:12px; font-weight:700; opacity:0.55; margin:14px 0 8px;">OPEN ROUNDS</div>' : ''}
+    ${state.availablePlayers.length > 0 ? '<div style="font-size:12px; font-weight:700; opacity:0.68; margin:14px 0 8px;">OPEN ROUNDS</div>' : ''}
     ${open.map(t => {
       const myReq = t.requests.find(r => r.userId === state.myUserId);
       let actionHtml;
@@ -1870,7 +2074,7 @@ function attachDiscoverHandlers(){
 function renderPost(){
   return `
     <h1 class="screen-title">Post your round</h1>
-    <p style="font-size:13px; opacity:0.65; margin-top:-8px;">Already have a tee time booked? Post it here so other golfers can join you.</p>
+    <p style="font-size:13px; opacity:0.68; margin-top:-8px;">Already have a tee time booked? Post it here so other golfers can join you.</p>
     <label>Course</label>
     <input id="pt-course" placeholder="e.g. Trenton Country Club" />
     <label>Date</label>
@@ -1924,7 +2128,7 @@ function renderMyRounds(){
   const joined = state.teetimes.filter(t => t.hostId !== state.myUserId && t.status !== 'cancelled' && t.requests.some(r => r.userId === state.myUserId));
 
   let html = '<h1 class="screen-title">My rounds</h1>';
-  html += '<div style="font-size:12px; font-weight:700; opacity:0.55; margin-bottom:8px;">HOSTING</div>';
+  html += '<div style="font-size:12px; font-weight:700; opacity:0.68; margin-bottom:8px;">HOSTING</div>';
 
   if(hosted.length === 0){
     html += "<div class=\"empty\" style=\"padding:20px 10px;\">You haven't posted a round yet.</div>";
@@ -1970,7 +2174,7 @@ function renderMyRounds(){
     `;}).join('');
   }
 
-  html += '<div style="font-size:12px; font-weight:700; opacity:0.55; margin:18px 0 8px;">REQUESTED TO JOIN</div>';
+  html += '<div style="font-size:12px; font-weight:700; opacity:0.68; margin:18px 0 8px;">REQUESTED TO JOIN</div>';
   if(joined.length === 0){
     html += '<div class="empty" style="padding:20px 10px;">No pending requests. Browse Discover to find a round.</div>';
   } else {
@@ -2140,7 +2344,7 @@ function renderBook(){
   const requestedCourseNames = state.myCourseRequests.map(r => r.courseName);
 
   const myRequestsSection = state.myCourseRequests.length > 0 ? `
-    <div style="font-size:12px; font-weight:700; opacity:0.55; margin-bottom:8px;">YOUR REQUESTS</div>
+    <div style="font-size:12px; font-weight:700; opacity:0.68; margin-bottom:8px;">YOUR REQUESTS</div>
     ${state.myCourseRequests.map(r => `
       <div class="card">
         <div class="card-top">
@@ -2150,7 +2354,7 @@ function renderBook(){
         <div class="meta">${r.preferredDate ? escapeHtml(r.preferredDate) : 'Any date'} · ${r.preferredTime ? escapeHtml(r.preferredTime) : 'Any time'}</div>
       </div>
     `).join('')}
-    <div style="font-size:12px; font-weight:700; opacity:0.55; margin:18px 0 8px;">FIND A COURSE</div>
+    <div style="font-size:12px; font-weight:700; opacity:0.68; margin:18px 0 8px;">FIND A COURSE</div>
   ` : '';
 
   let body;
@@ -2180,7 +2384,7 @@ function renderBook(){
         <div class="card" data-select-course="${escapeHtml(c.name)}" style="cursor:pointer;">
           <div style="display:flex; justify-content:space-between; align-items:center;">
             <span class="course-name">${escapeHtml(c.name)}</span>
-            ${already ? '<span class="pill" style="border-color:var(--turf); color:var(--turf); font-weight:700;">Requested</span>' : '<span style="opacity:0.35;">›</span>'}
+            ${already ? '<span class="pill" style="border-color:var(--turf); color:var(--turf); font-weight:700;">Requested</span>' : '<span style="opacity:0.68;">›</span>'}
           </div>
           ${ratingLine}
           ${distanceLine}
@@ -2193,7 +2397,7 @@ function renderBook(){
     <h1 class="screen-title">Book a Tee Time</h1>
     <div class="meta" style="margin:-8px 0 14px;">Real courses via OpenStreetMap — booking itself is still coming soon.</div>
     ${myRequestsSection}
-    <input id="book-search" placeholder="Search courses by name..." value="${escapeHtml(state.bookSearch)}" style="margin-bottom:12px;" />
+    <input id="book-search" placeholder="Search courses by name..." aria-label="Search courses by name" value="${escapeHtml(state.bookSearch)}" style="margin-bottom:12px;" />
     ${body}
   `;
 }
@@ -2210,7 +2414,7 @@ function renderBookCourseDetail(course){
       : `<div class="meta" style="margin-top:0;">No ratings yet — be the first to rate this course.</div>`;
 
   const starsHtml = [1,2,3,4,5].map(i =>
-    `<span class="course-star-pick" data-star="${i}" style="cursor:pointer; font-size:20px; margin-right:2px;">${shownStars >= i ? '★' : '☆'}</span>`
+    `<span class="course-star-pick" data-star="${i}" aria-label="Rate ${i} star${i===1?'':'s'}" style="cursor:pointer; font-size:20px; margin-right:2px;">${shownStars >= i ? '★' : '☆'}</span>`
   ).join('');
 
   const reviewsHtml = (data && data.ratings.length > 0) ? `
@@ -2226,13 +2430,13 @@ function renderBookCourseDetail(course){
   ` : '';
 
   return `
-    <div class="reset-link" id="book-back" style="text-align:left; margin:0 0 16px; opacity:0.55; cursor:pointer;">‹ Back to courses</div>
+    <div class="reset-link" id="book-back" style="text-align:left; margin:0 0 16px; cursor:pointer;">‹ Back to courses</div>
     <h1 class="screen-title">${escapeHtml(course)}</h1>
     ${summaryHtml}
     <div class="card">
       <label style="margin-top:0;">${myExisting ? 'Update your rating' : 'Rate this course'}</label>
       <div class="row" style="align-items:center; margin-top:4px;">${starsHtml}</div>
-      <textarea id="course-rating-comment" placeholder="Optional comment">${escapeHtml(myExisting ? (myExisting.comment || '') : '')}</textarea>
+      <textarea id="course-rating-comment" placeholder="Optional comment" aria-label="Comment (optional)">${escapeHtml(myExisting ? (myExisting.comment || '') : '')}</textarea>
       <div class="form-actions">
         <button class="btn btn-primary" id="course-rating-submit" style="width:100%;" ${state.courseRatingBusy || !shownStars ? 'disabled' : ''}>${state.courseRatingBusy ? 'Saving…' : (myExisting ? 'Update rating' : 'Submit rating')}</button>
       </div>
@@ -2354,7 +2558,7 @@ function renderProfile(){
       <label>General availability (optional — shown to others browsing Discover)</label>
       <div class="pill-row">
         ${AVAILABILITY_OPTIONS.map(opt => `
-          <span class="pill availability-toggle" data-availability-tag="${opt.value}" style="cursor:pointer; ${draft.includes(opt.value) ? 'background:var(--fairway); color:#fff; border-color:var(--fairway);' : ''}">${opt.label}</span>
+          <span class="pill availability-toggle" data-availability-tag="${opt.value}" role="button" tabindex="0" aria-pressed="${draft.includes(opt.value) ? 'true' : 'false'}" style="cursor:pointer; ${draft.includes(opt.value) ? 'background:var(--fairway); color:#fff; border-color:var(--fairway);' : ''}">${opt.label}</span>
         `).join('')}
       </div>
       <div class="form-actions">
@@ -2372,13 +2576,13 @@ function renderProfile(){
     <div class="card">
       <div class="card-top">
         <div class="course-name">${escapeHtml(p.name)}</div>
-        <span class="reset-link" id="edit-profile-link" style="margin:0; opacity:0.55;">Edit</span>
+        <span class="reset-link" id="edit-profile-link" style="margin:0;">Edit</span>
       </div>
       <div class="meta">Home course: ${escapeHtml(p.homeCourse)}</div>
       ${p.bio ? `<div class="notes">${escapeHtml(p.bio)}</div>` : ''}
       <div class="pill-row">
         <span class="pill">${escapeHtml(String(p.handicap))} handicap</span>
-        ${p.ratingCount > 0 ? `<span class="pill">★${p.avgRating} (${p.ratingCount} rating${p.ratingCount===1?'':'s'})</span>` : `<span class="pill" style="opacity:0.6;">No ratings yet</span>`}
+        ${p.ratingCount > 0 ? `<span class="pill">★${p.avgRating} (${p.ratingCount} rating${p.ratingCount===1?'':'s'})</span>` : `<span class="pill" style="opacity:0.68;">No ratings yet</span>`}
         <span class="pill">${roundsPlayedCount} round${roundsPlayedCount===1?'':'s'} played</span>
       </div>
       ${(p.availability && p.availability.length > 0) ? `

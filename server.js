@@ -555,7 +555,7 @@ app.delete('/api/account', ah(async (req, res) => {
 
 // --- Profiles ------------------------------------------------------------
 app.post('/api/profiles', ah(async (req, res) => {
-  const { name, homeCourse, handicap, bio, availability } = req.body;
+  const { name, homeCourse, handicap, bio, availability, termsAgreedAt, policyVersion } = req.body;
   const userId = resolveUserId(req, req.body.userId);
   if (!userId || !name || !homeCourse || handicap == null) {
     return res.status(400).json({ error: 'userId, name, homeCourse and handicap are required' });
@@ -570,8 +570,12 @@ app.post('/api/profiles', ah(async (req, res) => {
     }).eq('user_id', userId);
     if (error) return res.status(500).json({ error: 'Could not save profile' });
   } else {
+    // Consent (terms_agreed_at/terms_policy_version) is only ever set here,
+    // at first profile creation — editing a profile later never touches it,
+    // so it stays an honest record of when the box was actually checked.
     const { error } = await supabase.from('users').insert({
-      user_id: userId, name, home_course: homeCourse, handicap: parseFloat(handicap), bio: bio || '', availability: cleanAvailability, updated_at: Date.now()
+      user_id: userId, name, home_course: homeCourse, handicap: parseFloat(handicap), bio: bio || '', availability: cleanAvailability, updated_at: Date.now(),
+      terms_agreed_at: termsAgreedAt || null, terms_policy_version: policyVersion || null
     });
     if (error) return res.status(500).json({ error: 'Could not save profile' });
   }
