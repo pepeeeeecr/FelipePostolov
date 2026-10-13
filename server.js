@@ -259,15 +259,27 @@ async function notifyUser(userId, title, body) {
 // just one fetch call. Without RESEND_API_KEY set, this silently no-ops
 // (logging a warning) rather than failing the report itself; filing a
 // report must never depend on email being configured.
+//
+// Every outcome logs a distinct, greppable line — search Render's Logs for
+// "notifyAdminOfReport" to see every attempt (configured-at-boot check,
+// each send attempt, success or failure). Never logs RESEND_API_KEY itself,
+// only whether one was found and how long it is (to catch "pasted the
+// wrong thing" without ever printing a usable secret).
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
+if (RESEND_API_KEY) {
+  console.log(`notifyAdminOfReport: RESEND_API_KEY detected at boot (${RESEND_API_KEY.length} chars) — report emails enabled.`);
+} else {
+  console.warn('notifyAdminOfReport: RESEND_API_KEY not set at boot — report emails disabled until it is configured.');
+}
 
 async function notifyAdminOfReport(reporterId, reportedId, reason) {
   if (!RESEND_API_KEY) {
-    console.warn('RESEND_API_KEY not set — report email notification skipped.');
+    console.warn('notifyAdminOfReport: skipped — RESEND_API_KEY not set.');
     return;
   }
+  let res;
   try {
-    const res = await fetch('https://api.resend.com/emails', {
+    res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -286,12 +298,26 @@ async function notifyAdminOfReport(reporterId, reportedId, reason) {
         ].join('\n'),
       }),
     });
-    if (!res.ok) {
-      console.error('Report notification email failed:', res.status, await res.text().catch(() => ''));
-    }
   } catch (e) {
-    console.error('Report notification email failed:', e.message);
+    // Network-level failure (DNS, timeout, fetch itself missing/misbehaving
+    // on this Node runtime) — never got an HTTP response at all.
+    console.error('notifyAdminOfReport: request to Resend failed before a response came back:', e.message);
+    return;
   }
+  let bodyText = '';
+  try { bodyText = await res.text(); } catch (e) { /* ignore — log what we have */ }
+  if (!res.ok) {
+    // Resend's error responses are JSON with a "message" field — most
+    // common real-world cause: no domain verified, so onboarding@resend.dev
+    // can only send TO the email address the Resend account itself was
+    // signed up with. If ADMIN_EMAIL isn't that exact address, every send
+    // gets rejected here with exactly that explanation.
+    console.error(`notifyAdminOfReport: Resend rejected the email — HTTP ${res.status}: ${bodyText}`);
+    return;
+  }
+  let emailId = '(no id in response)';
+  try { emailId = JSON.parse(bodyText).id || emailId; } catch (e) { /* non-JSON success body, unlikely */ }
+  console.log(`notifyAdminOfReport: Resend accepted the email, id=${emailId}, to=${legal.ADMIN_EMAIL}`);
 }
 
 function isParticipant(teetimeRow, userId) {
