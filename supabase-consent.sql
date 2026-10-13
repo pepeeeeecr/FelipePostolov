@@ -13,8 +13,11 @@ alter table users add column if not exists terms_policy_version text;
 -- Guest -> account migration should carry the guest's consent record over
 -- if the real account doesn't already have one of its own, same pattern as
 -- is_pro/stripe_customer_id below. Redefines the function in full (as every
--- migration touching it does) — this is the version from
--- supabase-social-safety.sql plus the two coalesce lines for consent.
+-- migration touching it does) — this is supabase-fix-security-definer.sql's
+-- version (the one with the auth.uid() ownership check — do NOT drop that
+-- check by basing a future edit of this function on an older copy; see
+-- supabase-fix-migrate-guest-regression.sql for what happens when you do)
+-- plus the two coalesce lines for consent.
 create or replace function migrate_guest_to_user(p_guest_id text, p_auth_id text)
 returns void
 language plpgsql
@@ -24,6 +27,15 @@ as $$
 begin
   if p_guest_id is null or p_auth_id is null or p_guest_id = p_auth_id then
     return;
+  end if;
+
+  -- Only the destination account's real owner (or the backend, via
+  -- service_role) may pull guest data into it. There's no meaningful
+  -- "auth.uid() = p_guest_id" check possible — guest ids never have a real
+  -- Supabase Auth session — so p_auth_id (the account being written INTO)
+  -- is the identity that matters here.
+  if auth.uid() is not null and auth.uid()::text <> p_auth_id then
+    raise exception 'not authorized: you can only migrate data into your own account';
   end if;
 
   if exists (select 1 from users where user_id = p_auth_id) then
@@ -95,4 +107,5 @@ begin
 end;
 $$;
 
-grant execute on function migrate_guest_to_user(text, text) to service_role;
+revoke execute on function migrate_guest_to_user(text, text) from public, anon, authenticated;
+grant execute on function migrate_guest_to_user(text, text) to service_role, authenticated;
