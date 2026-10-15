@@ -403,6 +403,15 @@ function guestHeaders(){
   return token ? { 'X-Guest-Token': token } : {};
 }
 
+// Folds a guest's data into the account just signed into. The guest token
+// proves this browser really is that guest — the server won't move a
+// guest's data on the bare id alone.
+async function migrateGuest(guestId){
+  const result = await apiPost('/api/auth/migrate-guest', { guestId, guestToken: loadGuestTokens()[guestId] || null });
+  if(result.migrated) saveGuestToken(guestId, null);
+  return result;
+}
+
 // The localtunnel dev relay is genuinely flaky in short bursts (measured
 // ~1-in-20 baseline, sometimes worse) — always as one of these gateway
 // status codes, never anything our own Express app returns (server.js only
@@ -494,7 +503,7 @@ function scrollChatToBottom(){
 async function loadChatMessages(){
   if(!state.chatTeetimeId) return;
   try{
-    state.chatMessages = await apiGet('/api/teetimes/' + state.chatTeetimeId + '/messages?userId=' + encodeURIComponent(state.myUserId));
+    state.chatMessages = await apiGet('/api/teetimes/' + state.chatTeetimeId + '/messages');
     render();
     scrollChatToBottom();
   }catch(e){
@@ -562,7 +571,7 @@ async function init(){
         sessionStorage.removeItem(OAUTH_GUEST_ID_KEY);
         if(pendingGuestId !== '__NONE__' && pendingGuestId !== state.myUserId){
           try{
-            const result = await apiPost('/api/auth/migrate-guest', { guestId: pendingGuestId });
+            const result = await migrateGuest(pendingGuestId);
             showToast(result.migrated ? "You're signed in — your guest data was moved to your account" : "You're signed in");
           }catch(e){
             console.error('Guest migration failed', e);
@@ -676,7 +685,7 @@ async function handleAuthSuccess(session, previousGuestId){
 
   if(previousGuestId && previousGuestId !== state.myUserId){
     try{
-      const result = await apiPost('/api/auth/migrate-guest', { guestId: previousGuestId });
+      const result = await migrateGuest(previousGuestId);
       showToast(result.migrated ? "You're signed in — your guest data was moved to your account" : "You're signed in");
     }catch(e){
       console.error('Guest migration failed', e);
@@ -892,7 +901,7 @@ async function saveProfile(name, homeCourse, handicap, bio, availability){
     showToast('Profile saved');
     render();
   }catch(e){
-    showToast(e.message || 'Could not save — try again');
+    showToast(e.status === 401 ? 'Log in or create an account to edit this profile' : (e.message || 'Could not save — try again'));
     console.error('saveProfile failed:', { message: e.message, status: e.status, path: e.path, body: e.body });
   }
 }
@@ -2180,7 +2189,10 @@ function renderMyRounds(){
         </div>
         ${t.requests.length === 0 ? '<div class="notes">No requests yet.</div>' :
           t.requests.map(r => {
-            const hcpDisplay = `${escapeHtml(String(r.handicap))} HCP · ${confirmedRoundsFor(r.userId)} confirmed round${confirmedRoundsFor(r.userId)===1?'':'s'}`;
+            // Counted server-side now (non-hosts no longer get other people's
+            // request entries); fall back for an older backend.
+            const confirmedCount = r.confirmedRounds ?? confirmedRoundsFor(r.userId);
+            const hcpDisplay = `${escapeHtml(String(r.handicap))} HCP · ${confirmedCount} confirmed round${confirmedCount===1?'':'s'}`;
             const myRatingOfThem = t.ratings.find(rt => rt.raterId === state.myUserId && rt.rateeId === r.userId);
             const playedTogetherLine = (r.status === 'pending' && r.playedTogether != null)
               ? `<div class="meta" style="width:100%; margin-top:2px;">${r.playedTogether > 0 ? `You've played ${r.playedTogether} round${r.playedTogether===1?'':'s'} with this person` : "You haven't played with this person before"}</div>`

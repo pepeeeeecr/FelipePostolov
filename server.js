@@ -149,10 +149,27 @@ async function getCourseRatingSummaries(courseNames) {
   return summaries;
 }
 
-// viewerId/blockedIds are only meaningful when the viewer is this round's
-// host: that's the one context where seeing who's pending is useful, and the
-// only case where playedTogether/blocked-filtering should run at all — it's
-// the same "quick note" the host sees when deciding on a join request.
+// How many rounds this user has been approved into, across every round —
+// the "N confirmed rounds" trust signal a host sees next to a join request.
+// Computed here because non-hosts no longer receive other people's request
+// entries, so the client can't count them itself anymore.
+async function getConfirmedRoundsCount(userId) {
+  const { count, error } = await supabase
+    .from('teetimes')
+    .select('id', { count: 'exact', head: true })
+    // JSON string, not a JS array — supabase-js would serialize an array as
+    // a Postgres array literal, which jsonb containment rejects.
+    .filter('requests', 'cs', JSON.stringify([{ userId, status: 'approved' }]));
+  if (error) throw error;
+  return count || 0;
+}
+
+// viewerId must be a verified identity (verifiedUserId), never a
+// client-supplied id — it decides how much of the round this viewer gets.
+// The host sees everything: every request (with ids, needed to approve,
+// rate and open profiles), who viewed it, all ratings. Anyone else sees only
+// their own request entry and ratings they gave or got, so participant ids
+// aren't public — they used to be enough to read a round's chat.
 async function buildTeetimeResponse(row, viewerId, blockedIds) {
   const json = teetimeRowToJson(row);
   json.ratings = await getRatingsForTeetime(row.id);
@@ -167,7 +184,12 @@ async function buildTeetimeResponse(row, viewerId, blockedIds) {
     json.requests = await Promise.all(requests.map(async r => ({
       ...r,
       playedTogether: await getPlayedTogetherCount(viewerId, r.userId),
+      confirmedRounds: await getConfirmedRoundsCount(r.userId),
     })));
+  } else {
+    json.requests = viewerId ? json.requests.filter(r => r.userId === viewerId) : [];
+    json.ratings = viewerId ? json.ratings.filter(r => r.raterId === viewerId || r.rateeId === viewerId) : [];
+    json.viewedBy = [];
   }
   return json;
 }
@@ -482,6 +504,9 @@ async function attachAuthUser(req, res, next) {
 const GUEST_ID_PATTERN = /^u_[a-z0-9]{6,40}$/;
 const guestTokenSecret = process.env.GUEST_TOKEN_SECRET
   || crypto.createHmac('sha256', process.env.SUPABASE_SERVICE_ROLE_KEY || '').update('foursome-guest-token-v1').digest();
+if (!process.env.GUEST_TOKEN_SECRET) {
+  console.warn('GUEST_TOKEN_SECRET not set — guest tokens are signed with a key derived from the service-role key.');
+}
 
 function signGuestId(guestId) {
   return crypto.createHmac('sha256', guestTokenSecret).update(guestId).digest('base64url');
@@ -649,9 +674,15 @@ app.get('/checkout-cancel', (req, res) => {
 // signed into, since that requires the service-role key.
 app.post('/api/auth/migrate-guest', ah(async (req, res) => {
   if (!req.authUser) return res.status(401).json({ error: 'Sign in required' });
-  const { guestId } = req.body;
+  const { guestId, guestToken } = req.body;
   if (!guestId) return res.status(400).json({ error: 'guestId is required' });
   if (guestId === req.authUser.id) return res.json({ migrated: false, profile: null });
+  // Guest ids are visible to others, so the caller must also prove they
+  // are that guest — otherwise any signed-in user could absorb anyone's
+  // guest data into their own account.
+  if (verifyGuestToken(guestToken) !== guestId) {
+    return res.status(403).json({ error: 'Not authorized to move this guest profile' });
+  }
 
   const { error } = await supabase.rpc('migrate_guest_to_user', {
     p_guest_id: guestId,
@@ -661,6 +692,10 @@ app.post('/api/auth/migrate-guest', ah(async (req, res) => {
     console.error('Guest migration failed:', error.message);
     return res.status(500).json({ error: 'Could not migrate guest data' });
   }
+  // migrate_guest_to_user predates course_requests and doesn't move them.
+  const { error: crError } = await supabase.from('course_requests')
+    .update({ user_id: req.authUser.id }).eq('user_id', guestId);
+  if (crError) console.error('Failed to move guest course requests:', crError.message);
 
   const user = await getUser(req.authUser.id);
   res.json({ migrated: true, profile: user ? await toProfileJson(user) : null });
@@ -668,18 +703,23 @@ app.post('/api/auth/migrate-guest', ah(async (req, res) => {
 
 // Permanently deletes a user's data — profile, rounds they hosted (and
 // those rounds' chat history), their ratings, push subscriptions, and their
-// entries inside other people's teetimes.requests/viewedBy. Works the same
-// way for a signed-in user (resolveUserId forces this to their own id) and
-// a guest (trusts the client-supplied id, same trust model as everywhere
-// else in guest mode). When signed in, also deletes the actual Supabase
+// entries inside other people's teetimes.requests/viewedBy, and their course
+// requests. Only ever acts on the verified caller — a signed-in user's own
+// id, or a guest proven by their guest token. When signed in, also deletes the actual Supabase
 // Auth account — from that point the access token they were using is dead.
 app.delete('/api/account', ah(async (req, res) => {
-  const userId = resolveUserId(req, req.body.userId);
-  if (!userId) return res.status(400).json({ error: 'userId is required' });
+  const userId = verifiedUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Sign in required' });
 
   const { error: rpcError } = await supabase.rpc('delete_user_account', { p_user_id: userId });
   if (rpcError) {
     console.error('Failed to delete account data:', rpcError.message);
+    return res.status(500).json({ error: 'Could not delete account data' });
+  }
+  // delete_user_account predates course_requests and leaves them behind.
+  const { error: crError } = await supabase.from('course_requests').delete().eq('user_id', userId);
+  if (crError) {
+    console.error('Failed to delete course requests:', crError.message);
     return res.status(500).json({ error: 'Could not delete account data' });
   }
 
@@ -707,6 +747,13 @@ app.post('/api/profiles', ah(async (req, res) => {
     ? [...new Set(availability.filter(tag => AVAILABILITY_TAGS.has(tag)))]
     : [];
   const existing = await getUser(userId);
+  // Without a login, only two things are allowed: creating a brand-new
+  // guest profile (which is what issues the guest token), or editing a
+  // guest profile with that guest's own token. A bare id is never enough.
+  if (!req.authUser) {
+    const allowed = existing ? req.guestId === userId : GUEST_ID_PATTERN.test(userId);
+    if (!allowed) return res.status(401).json({ error: 'Sign in required' });
+  }
   if (existing && existing.banned) return res.status(403).json(BANNED_ERROR);
   if (existing) {
     const { error } = await supabase.from('users').update({
@@ -766,13 +813,14 @@ app.get('/api/profiles/:userId', ah(async (req, res) => {
   // profile either, so it falls back to onboarding, and re-creating it
   // hits the banned check in POST /api/profiles.
   if (!user || user.banned) return res.status(404).json({ error: 'Not found' });
-  const viewerId = resolveUserId(req, req.query.viewerId);
-  res.json(await toProfileJson(user, viewerId));
+  // Verified only — blockedByMe/mutualRounds describe the viewer's own
+  // relationships, so a ?viewerId= would let anyone check who blocked whom.
+  res.json(await toProfileJson(user, verifiedUserId(req)));
 }));
 
 // --- Tee times -------------------------------------------------------------
 app.get('/api/teetimes', ah(async (req, res) => {
-  const viewerId = resolveUserId(req, req.query.userId);
+  const viewerId = verifiedUserId(req);
   const { data: rows, error } = await supabase.from('teetimes').select('*').order('created_at', { ascending: false });
   if (error) return res.status(500).json({ error: 'Could not load tee times' });
 
@@ -832,7 +880,7 @@ app.post('/api/teetimes', ah(async (req, res) => {
     created_at: Date.now()
   }).select().single();
   if (error) return res.status(500).json({ error: 'Could not create tee time' });
-  res.json(await buildTeetimeResponse(row));
+  res.json(await buildTeetimeResponse(row, verifiedUserId(req)));
 }));
 
 app.post('/api/teetimes/:id/request', ah(async (req, res) => {
@@ -847,13 +895,13 @@ app.post('/api/teetimes/:id/request', ah(async (req, res) => {
   }
   const requests = row.requests || [];
   if (requests.some(r => r.userId === userId)) {
-    return res.json(await buildTeetimeResponse(row)); // already requested, no-op
+    return res.json(await buildTeetimeResponse(row, verifiedUserId(req))); // already requested, no-op
   }
   requests.push({ userId, name, handicap, status: 'pending' });
   await supabase.from('teetimes').update({ requests }).eq('id', req.params.id);
   notifyUser(row.host_id, 'New join request', `${name} wants to join your round at ${row.course}`).catch(() => {});
   const { data: updated } = await supabase.from('teetimes').select('*').eq('id', req.params.id).single();
-  res.json(await buildTeetimeResponse(updated));
+  res.json(await buildTeetimeResponse(updated, verifiedUserId(req)));
 }));
 
 // Lets a requester withdraw their own still-pending request — scoped to
@@ -873,7 +921,7 @@ app.delete('/api/teetimes/:id/request', ah(async (req, res) => {
   const nextRequests = requests.filter(r => r.userId !== userId);
   await supabase.from('teetimes').update({ requests: nextRequests }).eq('id', req.params.id);
   const { data: updated } = await supabase.from('teetimes').select('*').eq('id', req.params.id).single();
-  res.json(await buildTeetimeResponse(updated));
+  res.json(await buildTeetimeResponse(updated, verifiedUserId(req)));
 }));
 
 app.post('/api/teetimes/:id/respond', ah(async (req, res) => {
@@ -898,7 +946,7 @@ app.post('/api/teetimes/:id/respond', ah(async (req, res) => {
     : `Your request for ${row.course} was declined`;
   notifyUser(userId, notifyTitle, notifyBody).catch(() => {});
   const { data: updated } = await supabase.from('teetimes').select('*').eq('id', req.params.id).single();
-  res.json(await buildTeetimeResponse(updated));
+  res.json(await buildTeetimeResponse(updated, verifiedUserId(req)));
 }));
 
 app.post('/api/teetimes/:id/rate', ah(async (req, res) => {
@@ -918,7 +966,7 @@ app.post('/api/teetimes/:id/rate', ah(async (req, res) => {
   await supabase.from('ratings').insert({
     teetime_id: req.params.id, rater_id: raterId, ratee_id: rateeId, rating: r, comment: comment || '', created_at: Date.now()
   });
-  res.json(await buildTeetimeResponse(row));
+  res.json(await buildTeetimeResponse(row, verifiedUserId(req)));
 }));
 
 app.post('/api/teetimes/:id/view', ah(async (req, res) => {
@@ -954,12 +1002,16 @@ app.delete('/api/teetimes/:id', ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// Chat is participants-only (host + approved players), and "who's asking"
+// comes only from a verified login or guest token — a ?userId= or body
+// userId is ignored, since participant ids were never secret.
 app.get('/api/teetimes/:id/messages', ah(async (req, res) => {
-  const { userId } = req.query;
+  const userId = verifiedUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Sign in required' });
   const { data: row, error } = await supabase.from('teetimes').select('*').eq('id', req.params.id).maybeSingle();
   if (error) return res.status(500).json({ error: 'Could not load tee time' });
   if (!row) return res.status(404).json({ error: 'Not found' });
-  if (!userId || !isParticipant(row, userId)) {
+  if (!isParticipant(row, userId)) {
     return res.status(403).json({ error: 'Not authorized for this chat' });
   }
   const { data: messages, error: msgError } = await supabase
@@ -973,9 +1025,10 @@ app.get('/api/teetimes/:id/messages', ah(async (req, res) => {
 
 app.post('/api/teetimes/:id/messages', ah(async (req, res) => {
   const { name, text } = req.body;
-  const userId = resolveUserId(req, req.body.userId);
-  if (!userId || !name || !text || !text.trim()) {
-    return res.status(400).json({ error: 'userId, name and text are required' });
+  const userId = verifiedUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Sign in required' });
+  if (!name || !text || !text.trim()) {
+    return res.status(400).json({ error: 'name and text are required' });
   }
   const modError = moderateFields([text]);
   if (modError) return res.status(400).json(modError);
