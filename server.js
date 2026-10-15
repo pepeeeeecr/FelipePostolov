@@ -350,8 +350,8 @@ function isParticipant(teetimeRow, userId) {
 }
 
 // --- Blocking & "played together" ----------------------------------------
-// Every id in a block row is user-controlled (guests trust a client-supplied
-// id — see resolveUserId above), so these always use parameterized filters
+// The blocked id in a block row is user-controlled (whoever they chose to
+// block), so these always use parameterized filters
 // (.eq/.in) rather than building a filter string with ids interpolated into
 // it, which would otherwise be an injection vector into PostgREST's filter
 // syntax.
@@ -474,8 +474,8 @@ function ah(fn) {
 // client sends the resulting access token as "Authorization: Bearer <jwt>";
 // we verify it here with the service-role client, which can validate any
 // user's token. When there's no token (or it's invalid), req.authUser stays
-// null and routes fall back to trusting a client-supplied id, same as
-// before — that's what keeps guest mode working untouched.
+// null; guests are identified by their signed guest token instead (see
+// below), never by a client-supplied id.
 async function attachAuthUser(req, res, next) {
   const authHeader = req.headers['authorization'] || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
@@ -534,10 +534,10 @@ function verifiedUserId(req) {
   return req.guestId || null;
 }
 
-// The effective identity for a request: the verified session's user id when
-// one exists, otherwise whatever id the client sent (guest mode). A signed-in
-// client can't spoof a different userId in the body/query once this is used
-// consistently — the session always wins.
+// The verified session's user id when one exists, otherwise whatever id the
+// client sent. Only POST /api/profiles still uses this, and only to name the
+// brand-new guest profile it creates (which is what issues the guest
+// token); every other route uses verifiedUserId.
 function resolveUserId(req, bodyUserId) {
   return req.authUser ? req.authUser.id : bodyUserId;
 }
@@ -594,7 +594,8 @@ app.post('/api/checkout', ah(async (req, res) => {
     return res.status(503).json({ error: 'Stripe is not configured on this server yet' });
   }
   const { successUrl, cancelUrl } = req.body;
-  const userId = resolveUserId(req, req.body.userId);
+  const userId = verifiedUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Sign in required' });
   if (!userId || !successUrl || !cancelUrl) {
     return res.status(400).json({ error: 'userId, successUrl and cancelUrl are required' });
   }
@@ -628,7 +629,8 @@ app.post('/api/portal', ah(async (req, res) => {
     return res.status(503).json({ error: 'Stripe is not configured on this server yet' });
   }
   const { returnUrl } = req.body;
-  const userId = resolveUserId(req, req.body.userId);
+  const userId = verifiedUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Sign in required' });
   if (!userId || !returnUrl) {
     return res.status(400).json({ error: 'userId and returnUrl are required' });
   }
@@ -843,7 +845,8 @@ app.get('/api/teetimes', ah(async (req, res) => {
 
 app.post('/api/teetimes', ah(async (req, res) => {
   const { hostName, hostHandicap, course, date, time, totalSpots, hcpRange, pace, notes } = req.body;
-  const hostId = resolveUserId(req, req.body.hostId);
+  const hostId = verifiedUserId(req);
+  if (!hostId) return res.status(401).json({ error: 'Sign in required' });
   if (!hostId || !hostName || !course || !date || !time || !totalSpots) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
@@ -885,7 +888,8 @@ app.post('/api/teetimes', ah(async (req, res) => {
 
 app.post('/api/teetimes/:id/request', ah(async (req, res) => {
   const { name, handicap } = req.body;
-  const userId = resolveUserId(req, req.body.userId);
+  const userId = verifiedUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Sign in required' });
   const { data: row, error } = await supabase.from('teetimes').select('*').eq('id', req.params.id).maybeSingle();
   if (error) return res.status(500).json({ error: 'Could not load tee time' });
   if (!row) return res.status(404).json({ error: 'Not found' });
@@ -909,7 +913,8 @@ app.post('/api/teetimes/:id/request', ah(async (req, res) => {
 // not something this route un-does (leaving a confirmed round is a
 // different action this doesn't attempt to cover).
 app.delete('/api/teetimes/:id/request', ah(async (req, res) => {
-  const userId = resolveUserId(req, req.body.userId);
+  const userId = verifiedUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Sign in required' });
   if (!userId) return res.status(400).json({ error: 'userId is required' });
   const { data: row, error } = await supabase.from('teetimes').select('*').eq('id', req.params.id).maybeSingle();
   if (error) return res.status(500).json({ error: 'Could not load tee time' });
@@ -926,10 +931,15 @@ app.delete('/api/teetimes/:id/request', ah(async (req, res) => {
 
 app.post('/api/teetimes/:id/respond', ah(async (req, res) => {
   const { userId, decision } = req.body;
+  const hostId = verifiedUserId(req);
+  if (!hostId) return res.status(401).json({ error: 'Sign in required' });
+  if (decision !== 'approved' && decision !== 'denied') {
+    return res.status(400).json({ error: "decision must be 'approved' or 'denied'" });
+  }
   const { data: row, error } = await supabase.from('teetimes').select('*').eq('id', req.params.id).maybeSingle();
   if (error) return res.status(500).json({ error: 'Could not load tee time' });
   if (!row) return res.status(404).json({ error: 'Not found' });
-  if (req.authUser && req.authUser.id !== row.host_id) {
+  if (hostId !== row.host_id) {
     return res.status(403).json({ error: 'Only the host can respond to requests' });
   }
   if (await isBanned(row.host_id)) return res.status(403).json(BANNED_ERROR);
@@ -951,7 +961,8 @@ app.post('/api/teetimes/:id/respond', ah(async (req, res) => {
 
 app.post('/api/teetimes/:id/rate', ah(async (req, res) => {
   const { rateeId, rating, comment } = req.body;
-  const raterId = resolveUserId(req, req.body.raterId);
+  const raterId = verifiedUserId(req);
+  if (!raterId) return res.status(401).json({ error: 'Sign in required' });
   if (!raterId || !rateeId || !rating) {
     return res.status(400).json({ error: 'raterId, rateeId and rating are required' });
   }
@@ -961,6 +972,11 @@ app.post('/api/teetimes/:id/rate', ah(async (req, res) => {
   const { data: row, error } = await supabase.from('teetimes').select('*').eq('id', req.params.id).maybeSingle();
   if (error) return res.status(500).json({ error: 'Could not load tee time' });
   if (!row) return res.status(404).json({ error: 'Not found' });
+  // Only people who actually played this round (host + approved players)
+  // can rate each other — never yourself, never a stranger.
+  if (raterId === rateeId || !isParticipant(row, raterId) || !isParticipant(row, rateeId)) {
+    return res.status(403).json({ error: 'You can only rate players from this round' });
+  }
   // Upsert: remove any existing rating from this rater to this ratee for this round, then insert fresh
   await supabase.from('ratings').delete().match({ teetime_id: req.params.id, rater_id: raterId, ratee_id: rateeId });
   await supabase.from('ratings').insert({
@@ -970,7 +986,8 @@ app.post('/api/teetimes/:id/rate', ah(async (req, res) => {
 }));
 
 app.post('/api/teetimes/:id/view', ah(async (req, res) => {
-  const userId = resolveUserId(req, req.body.userId);
+  const userId = verifiedUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Sign in required' });
   const { data: row, error } = await supabase.from('teetimes').select('*').eq('id', req.params.id).maybeSingle();
   if (error) return res.status(500).json({ error: 'Could not load tee time' });
   if (!row) return res.status(404).json({ error: 'Not found' });
@@ -984,7 +1001,8 @@ app.post('/api/teetimes/:id/view', ah(async (req, res) => {
 }));
 
 app.delete('/api/teetimes/:id', ah(async (req, res) => {
-  const userId = resolveUserId(req, req.body.userId);
+  const userId = verifiedUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Sign in required' });
   const { data: row, error } = await supabase.from('teetimes').select('*').eq('id', req.params.id).maybeSingle();
   if (error) return res.status(500).json({ error: 'Could not load tee time' });
   if (!row) return res.status(404).json({ error: 'Not found' });
@@ -1155,7 +1173,8 @@ app.get('/api/vapid-public-key', (req, res) => {
 
 app.post('/api/push/subscribe', async (req, res) => {
   const { subscription } = req.body;
-  const userId = resolveUserId(req, req.body.userId);
+  const userId = verifiedUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Sign in required' });
   if (!userId || !subscription || !subscription.endpoint) {
     return res.status(400).json({ error: 'userId and subscription are required' });
   }
@@ -1182,7 +1201,8 @@ app.post('/api/push/subscribe', async (req, res) => {
 // role "endpoint" plays for a web subscription. See supabase-expo-push.sql.
 app.post('/api/push/subscribe-expo', ah(async (req, res) => {
   const { token } = req.body;
-  const userId = resolveUserId(req, req.body.userId);
+  const userId = verifiedUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Sign in required' });
   if (!userId || !token) {
     return res.status(400).json({ error: 'userId and token are required' });
   }
@@ -1215,7 +1235,8 @@ app.post('/api/push/subscribe-expo', ah(async (req, res) => {
 // just because someone flips a preference in Settings, so notifyUser's lazy
 // dead-token cleanup alone wouldn't actually stop mobile push on toggle-off.
 app.delete('/api/push/unsubscribe', ah(async (req, res) => {
-  const userId = resolveUserId(req, req.body.userId);
+  const userId = verifiedUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Sign in required' });
   const { endpoint } = req.body;
   if (!userId || !endpoint) return res.status(400).json({ error: 'userId and endpoint are required' });
   const { error } = await supabase.from('push_subscriptions').delete().match({ user_id: userId, endpoint });
@@ -1240,7 +1261,8 @@ app.get('/api/blocks/mine', ah(async (req, res) => {
 }));
 
 app.post('/api/blocks', ah(async (req, res) => {
-  const userId = resolveUserId(req, req.body.userId);
+  const userId = verifiedUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Sign in required' });
   const { blockedId } = req.body;
   if (!userId || !blockedId) return res.status(400).json({ error: 'userId and blockedId are required' });
   if (userId === blockedId) return res.status(400).json({ error: "You can't block yourself" });
@@ -1251,7 +1273,8 @@ app.post('/api/blocks', ah(async (req, res) => {
 }));
 
 app.delete('/api/blocks/:blockedId', ah(async (req, res) => {
-  const userId = resolveUserId(req, req.body.userId);
+  const userId = verifiedUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Sign in required' });
   if (!userId) return res.status(400).json({ error: 'userId is required' });
   const { error } = await supabase.from('blocks').delete().match({ blocker_id: userId, blocked_id: req.params.blockedId });
   if (error) return res.status(500).json({ error: 'Could not unblock user' });
@@ -1262,7 +1285,8 @@ app.delete('/api/blocks/:blockedId', ah(async (req, res) => {
 // and now also trigger an email to ADMIN_EMAIL so they don't just sit
 // silently; acting on one (banning) is still a manual Table Editor flip.
 app.post('/api/reports', ah(async (req, res) => {
-  const userId = resolveUserId(req, req.body.userId);
+  const userId = verifiedUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Sign in required' });
   const { reportedId, reason } = req.body;
   if (!userId || !reportedId || !reason || !reason.trim()) {
     return res.status(400).json({ error: 'reportedId and reason are required' });
@@ -1295,7 +1319,8 @@ app.get('/api/course-ratings', ah(async (req, res) => {
 
 app.post('/api/course-ratings', ah(async (req, res) => {
   const { courseName, rating, comment, raterName } = req.body;
-  const raterId = resolveUserId(req, req.body.raterId);
+  const raterId = verifiedUserId(req);
+  if (!raterId) return res.status(401).json({ error: 'Sign in required' });
   if (!raterId || !courseName || !courseName.trim() || !rating || !raterName) {
     return res.status(400).json({ error: 'raterId, courseName, rating and raterName are required' });
   }
@@ -1347,7 +1372,8 @@ app.get('/api/course-requests/mine', ah(async (req, res) => {
 
 app.post('/api/course-requests', ah(async (req, res) => {
   const { courseName, preferredDate, preferredTime } = req.body;
-  const userId = resolveUserId(req, req.body.userId);
+  const userId = verifiedUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Sign in required' });
   if (!userId || !courseName || !courseName.trim()) {
     return res.status(400).json({ error: 'userId and courseName are required' });
   }
@@ -1367,7 +1393,8 @@ app.post('/api/course-requests', ah(async (req, res) => {
 }));
 
 app.delete('/api/course-requests/:id', ah(async (req, res) => {
-  const userId = resolveUserId(req, req.body.userId);
+  const userId = verifiedUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Sign in required' });
   if (!userId) return res.status(400).json({ error: 'userId is required' });
   const { data: existing, error: fetchError } = await supabase
     .from('course_requests').select('id, user_id').eq('id', req.params.id).maybeSingle();
