@@ -380,10 +380,27 @@ function saveProfileList(list){
 // trusting a cached token) so a refreshed/expired token doesn't silently
 // break requests — the client library handles the actual refresh.
 async function authHeaders(){
-  if(!state.session) return {};
+  if(!state.session) return guestHeaders();
   const { data } = await sbAuth.auth.getSession();
   state.session = data.session;
-  return state.session ? { 'Authorization': 'Bearer ' + state.session.access_token } : {};
+  return state.session ? { 'Authorization': 'Bearer ' + state.session.access_token } : guestHeaders();
+}
+
+// Signed per-guest tokens the server hands back when a guest's profile is
+// first created (POST /api/profiles), keyed by guest id since one device
+// can hold several guest profiles. Sent as X-Guest-Token so endpoints like
+// /api/blocks/mine can tell it's really this guest asking.
+function loadGuestTokens(){
+  try{ return JSON.parse(localStorage.getItem('foursome_guestTokens') || '{}'); }catch(e){ return {}; }
+}
+function saveGuestToken(guestId, token){
+  const tokens = loadGuestTokens();
+  if(token) tokens[guestId] = token; else delete tokens[guestId];
+  localStorage.setItem('foursome_guestTokens', JSON.stringify(tokens));
+}
+function guestHeaders(){
+  const token = state.myUserId && loadGuestTokens()[state.myUserId];
+  return token ? { 'X-Guest-Token': token } : {};
 }
 
 // The localtunnel dev relay is genuinely flaky in short bursts (measured
@@ -813,10 +830,10 @@ async function reportViewingUser(){
 // already uses.
 async function loadBlockedUsers(){
   try{
-    const data = await apiGet('/api/blocks/mine?userId=' + encodeURIComponent(state.myUserId));
+    const data = await apiGet('/api/blocks/mine');
     state.blockedUsers = data.blocked || [];
   }catch(e){
-    showToast('Could not load blocked users');
+    showToast(e.status === 401 ? 'Log in or create an account to see blocked users' : 'Could not load blocked users');
     console.error(e);
     state.blockedUsers = [];
   }
@@ -860,6 +877,10 @@ async function saveProfile(name, homeCourse, handicap, bio, availability){
       userId: state.myUserId, name, homeCourse, handicap, bio: bio || '', availability: availability || [],
       termsAgreedAt: consent ? consent.agreedAt : null, policyVersion: consent ? consent.policyVersion : null
     });
+    if(profile.guestToken){
+      saveGuestToken(state.myUserId, profile.guestToken);
+      delete profile.guestToken;
+    }
     state.profile = profile;
     if(!state.profileList.some(p => p.id === state.myUserId)){
       state.profileList.push({ id: state.myUserId, name });
@@ -1052,7 +1073,7 @@ async function startCheckout(){
 
 async function refreshProStatus(){
   try{
-    const data = await apiGet('/api/pro-status?userId=' + encodeURIComponent(state.myUserId));
+    const data = await apiGet('/api/pro-status');
     const wasPro = !!state.profile.isPro;
     state.profile = Object.assign({}, state.profile, { isPro: data.isPro });
     if(data.isPro && !wasPro){
@@ -1066,7 +1087,7 @@ async function refreshProStatus(){
     }
     render();
   }catch(e){
-    showToast('Could not reach the server — try again shortly.');
+    showToast(e.status === 401 ? 'Log in or create an account to check your plan' : 'Could not reach the server — try again shortly.');
     console.error(e);
   }
 }
@@ -1115,6 +1136,7 @@ async function changePassword(newPassword, confirmPassword){
 function clearAllLocalIdentityState(){
   state.profileList = state.profileList.filter(p => p.id !== state.myUserId);
   saveProfileList(state.profileList);
+  saveGuestToken(state.myUserId, null);
   localStorage.removeItem('foursome_activeUserId');
   localStorage.removeItem('foursome_pushEnabled');
   state.myUserId = null;
@@ -2241,7 +2263,7 @@ function attachMyRoundsHandlers(){
 // --- Book a Tee Time (course request / waitlist) --------------------------
 async function loadMyCourseRequests(){
   try{
-    const data = await apiGet('/api/course-requests/mine?userId=' + encodeURIComponent(state.myUserId));
+    const data = await apiGet('/api/course-requests/mine');
     state.myCourseRequests = data.requests || [];
   }catch(e){
     console.error('Failed to load course requests', e);

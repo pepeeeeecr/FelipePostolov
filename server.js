@@ -8,6 +8,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
 const Stripe = require('stripe');
 const webpush = require('web-push');
@@ -465,7 +466,47 @@ async function attachAuthUser(req, res, next) {
       console.error('Auth token verification failed:', err.message);
     }
   }
+  req.guestId = verifyGuestToken(req.headers['x-guest-token']);
   next();
+}
+
+// --- Guest tokens -----------------------------------------------------------
+// Guests have no Supabase session, and their ids aren't secret (they show
+// up in teetimes.requests/viewedBy), so a bare ?userId= can't prove who's
+// asking. Instead, the one POST /api/profiles call that first creates a
+// guest's users row hands back a signed token for that id, which the app
+// keeps on the device and sends as "X-Guest-Token". It's stateless (an HMAC
+// over the id), so nothing new is stored. GUEST_TOKEN_SECRET can be set on
+// its own; otherwise it's derived from the service-role key, so rotating
+// that key also invalidates every guest token.
+const GUEST_ID_PATTERN = /^u_[a-z0-9]{6,40}$/;
+const guestTokenSecret = process.env.GUEST_TOKEN_SECRET
+  || crypto.createHmac('sha256', process.env.SUPABASE_SERVICE_ROLE_KEY || '').update('foursome-guest-token-v1').digest();
+
+function signGuestId(guestId) {
+  return crypto.createHmac('sha256', guestTokenSecret).update(guestId).digest('base64url');
+}
+
+function issueGuestToken(guestId) {
+  return 'g1.' + guestId + '.' + signGuestId(guestId);
+}
+
+function verifyGuestToken(token) {
+  if (typeof token !== 'string') return null;
+  const [version, guestId, sig] = token.split('.');
+  if (version !== 'g1' || !GUEST_ID_PATTERN.test(guestId || '') || !sig) return null;
+  const expected = Buffer.from(signGuestId(guestId));
+  const given = Buffer.from(sig);
+  if (given.length !== expected.length || !crypto.timingSafeEqual(given, expected)) return null;
+  return guestId;
+}
+
+// For routes that must never trust a client-supplied id: the verified
+// session's user id, or a guest id proven by a valid guest token — else
+// null, and the route answers 401.
+function verifiedUserId(req) {
+  if (req.authUser) return req.authUser.id;
+  return req.guestId || null;
 }
 
 // The effective identity for a request: the verified session's user id when
@@ -551,8 +592,8 @@ app.post('/api/checkout', ah(async (req, res) => {
 }));
 
 app.get('/api/pro-status', ah(async (req, res) => {
-  const userId = resolveUserId(req, req.query.userId);
-  if (!userId) return res.status(400).json({ error: 'userId is required' });
+  const userId = verifiedUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Sign in required' });
   const user = await getUser(userId);
   res.json({ isPro: !!(user && user.is_pro) });
 }));
@@ -681,6 +722,11 @@ app.post('/api/profiles', ah(async (req, res) => {
       terms_agreed_at: termsAgreedAt || null, terms_policy_version: policyVersion || null
     });
     if (error) return res.status(500).json({ error: 'Could not save profile' });
+    // Only ever issued here, when a guest's row is first created — never
+    // on an update, which would hand a token to anyone who knows the id.
+    if (!req.authUser && GUEST_ID_PATTERN.test(userId)) {
+      return res.json({ ...(await toProfileJson(await getUser(userId))), guestToken: issueGuestToken(userId) });
+    }
   }
   res.json(await toProfileJson(await getUser(userId)));
 }));
@@ -1128,8 +1174,8 @@ app.delete('/api/push/unsubscribe', ah(async (req, res) => {
 // Returns names alongside ids — a bare list of ids isn't renderable as a
 // "Blocked users" list in Settings on its own.
 app.get('/api/blocks/mine', ah(async (req, res) => {
-  const userId = resolveUserId(req, req.query.userId);
-  if (!userId) return res.status(400).json({ error: 'userId is required' });
+  const userId = verifiedUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Sign in required' });
   const { data, error } = await supabase.from('blocks').select('blocked_id').eq('blocker_id', userId);
   if (error) return res.status(500).json({ error: 'Could not load blocked users' });
   const blockedIds = (data || []).map(r => r.blocked_id);
@@ -1232,8 +1278,8 @@ function courseRequestJson(row) {
 }
 
 app.get('/api/course-requests/mine', ah(async (req, res) => {
-  const userId = resolveUserId(req, req.query.userId);
-  if (!userId) return res.status(400).json({ error: 'userId is required' });
+  const userId = verifiedUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Sign in required' });
   const { data, error } = await supabase
     .from('course_requests')
     .select('id, course_name, preferred_date, preferred_time, created_at')
