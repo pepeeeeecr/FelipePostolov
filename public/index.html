@@ -2392,12 +2392,12 @@ async function cancelCourseRequest(id){
 let bookSeq = 0;
 
 // The server can answer nearby before its full course list has arrived
-// (complete: false). Ask again every few seconds, for up to two minutes,
+// (complete: false). Ask again every 15 seconds, for up to four minutes,
 // so the rest fills in without the user doing anything.
 function pollNearbyUntilComplete(path, seq){
   let tries = 0;
   const tick = async () => {
-    if(seq !== bookSeq || tries++ >= 8) return;
+    if(seq !== bookSeq || tries++ >= 16) return;
     try{
       const data = await apiGet(path);
       if(seq !== bookSeq) return;
