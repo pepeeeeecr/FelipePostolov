@@ -440,17 +440,14 @@ async function getPlayedTogetherCount(userA, userB) {
   ).length;
 }
 
-// Free geocoding via OpenStreetMap's Nominatim — no API key needed.
-// Their usage policy asks for a real identifying User-Agent and to keep
-// requests light (this app only geocodes once per posted round, not on
-// every page load, so it stays well within fair use).
+// Free geocoding via OpenStreetMap's Nominatim — no API key needed. Goes
+// through nominatimFetch (below) so it shares the same User-Agent and
+// one-request-per-second limit as course search.
 async function geocodeCourse(courseName) {
   try {
     const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' +
       encodeURIComponent(courseName + ' golf course');
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'FoursomeApp/1.0 (golf tee-time matching prototype)' }
-    });
+    const res = await nominatimFetch(url);
     if (!res.ok) return null;
     const results = await res.json();
     if (results.length === 0) return null;
@@ -1421,47 +1418,89 @@ app.delete('/api/course-requests/:id', ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
-// --- Book a Tee Time: live course search (OpenStreetMap) -------------------
-// Nearby search uses Overpass's `around:` spatial filter — direct testing
-// showed this is fast and reliable on the public instance. Global name
-// search uses Nominatim (OSM's purpose-built search index, already used by
-// geocodeCourse above) instead of Overpass — testing showed Overpass's `~`
-// regex tag search reliably times out on the public instance regardless of
-// query shape or spatial bound size (even an 800km-bounded regex query
-// timed out), while Nominatim answers the same "find this named place"
-// query in well under a second. Both share one small in-memory cache so
-// repeated lookups (retyped searches, re-opening the tab) don't re-hit
-// either service every time — this is shared across all users, which is
-// what actually matters for being a good citizen of free public infra.
-const OSM_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+// --- Find a course: live course search (OpenStreetMap) --------------------
+// Nearby search uses Overpass's `around:` spatial filter; name search uses
+// Nominatim (OSM's search index), since Overpass regex name searches time
+// out on the public instances.
+//
+// The public Overpass server (overpass-api.de) is often at capacity — it
+// answers "502 ... All query workers are busy and the request queue is
+// full" — and was the cause of "Course search is temporarily unavailable".
+// So nearby search tries overpass-api.de first. If that fails, it asks a
+// backup Overpass server and a Nominatim search bounded to the area around
+// the user at the same time, and answers with whichever returns courses
+// first — Nominatim usually wins within a second (capped at 40 results),
+// while the backup Overpass server is slower (often 20s+) but more
+// complete, so its answer still lands in the cache for the next request.
+// If every source fails, a recent cached answer for that spot is served
+// instead of an error.
+//
+// OSM usage rules followed here (operations.osmfoundation.org/policies):
+// an identifying User-Agent with contact details on every request, at most
+// one Nominatim request per second across the whole server, one query at
+// a time per Overpass server, identical in-flight lookups shared rather than repeated,
+// and results cached so popular searches don't re-hit OSM at all.
+const OSM_USER_AGENT = 'FoursomeApp/1.0 (+https://felipepostolov.onrender.com; foursomeapp.golf@gmail.com)';
+const OVERPASS_SERVERS = [
+  { url: 'https://overpass-api.de/api/interpreter', timeoutMs: 10000 },
+  { url: 'https://maps.mail.ru/osm/tools/overpass/api/interpreter', timeoutMs: 25000 },
+];
+const NOMINATIM_TIMEOUT_MS = 10000;
+
+// Golf courses barely change, so results stay fresh for a day; anything up
+// to a week old is still served as a last resort when OSM is unreachable.
+const OSM_CACHE_FRESH_MS = 24 * 60 * 60 * 1000;
+const OSM_CACHE_STALE_MS = 7 * 24 * 60 * 60 * 1000;
+const OSM_CACHE_MAX = 1000;
 const osmCache = new Map();
 
-function getCachedOsm(key) {
+function getCachedOsm(key, maxAgeMs = OSM_CACHE_FRESH_MS) {
   const hit = osmCache.get(key);
   if (!hit) return null;
-  if (Date.now() - hit.at > OSM_CACHE_TTL_MS) { osmCache.delete(key); return null; }
+  const age = Date.now() - hit.at;
+  if (age > OSM_CACHE_STALE_MS) { osmCache.delete(key); return null; }
+  if (age > maxAgeMs) return null;
+  // Re-insert so popular entries stay at the "recent" end of the Map and
+  // the oldest-first eviction below drops rarely used ones instead.
+  osmCache.delete(key);
+  osmCache.set(key, hit);
   return hit.data;
 }
 function setCachedOsm(key, data) {
+  osmCache.delete(key);
   osmCache.set(key, { at: Date.now(), data });
-  if (osmCache.size > 200) osmCache.delete(osmCache.keys().next().value);
+  if (osmCache.size > OSM_CACHE_MAX) osmCache.delete(osmCache.keys().next().value);
 }
 
-function overpassElementToCourse(el) {
-  const tags = el.tags || {};
-  const lat = el.lat != null ? el.lat : (el.center ? el.center.lat : null);
-  const lng = el.lon != null ? el.lon : (el.center ? el.center.lon : null);
-  if (lat == null || lng == null || !tags.name) return null;
-  return { name: tags.name, lat, lng };
+// Identical lookups that arrive while one is already running share its
+// result instead of each hitting OSM.
+const osmInFlight = new Map();
+function sharedLookup(key, fn) {
+  if (osmInFlight.has(key)) return osmInFlight.get(key);
+  const p = fn().finally(() => osmInFlight.delete(key));
+  osmInFlight.set(key, p);
+  return p;
 }
 
-// Attaches Foursome's own course ratings to OpenStreetMap search results —
-// done at response time rather than baked into the OSM cache entry, so
-// cached course lists (shared across users, 5-minute TTL) stay reusable
-// while ratings themselves are always read fresh.
-async function enrichCoursesWithRatings(courses) {
-  const summaries = await getCourseRatingSummaries(courses.map(c => c.name));
-  return courses.map(c => ({ ...c, ...summaries.get(c.name) }));
+// Runs tasks one at a time, at least `gapMs` apart.
+function serialQueue(gapMs) {
+  let tail = Promise.resolve();
+  let last = 0;
+  return (task) => {
+    const run = tail.then(async () => {
+      const wait = last + gapMs - Date.now();
+      if (wait > 0) await new Promise(r => setTimeout(r, wait));
+      try { return await task(); } finally { last = Date.now(); }
+    });
+    tail = run.catch(() => {});
+    return run;
+  };
+}
+const nominatimQueue = serialQueue(1100); // Nominatim: max 1 request/second
+const overpassQueues = new Map();          // Overpass: one query at a time per server
+function overpassQueue(url) {
+  if (!overpassQueues.has(url)) overpassQueues.set(url, serialQueue(0));
+  return overpassQueues.get(url);
 }
 
 async function fetchWithTimeout(url, options, timeoutMs) {
@@ -1474,6 +1513,164 @@ async function fetchWithTimeout(url, options, timeoutMs) {
   }
 }
 
+function isRetryableStatus(status) {
+  return status === 429 || status >= 500;
+}
+
+// One retry after a short pause for a quick failure (busy/rate-limited
+// server or a dropped connection). A timeout is not retried against the
+// same server — it already used up its time budget.
+async function fetchWithOneRetry(doFetch, label) {
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const res = await doFetch();
+      if (attempt === 1 && isRetryableStatus(res.status)) {
+        console.warn(`${label}: HTTP ${res.status}, retrying once`);
+        await new Promise(r => setTimeout(r, 1500));
+        continue;
+      }
+      return res;
+    } catch (err) {
+      if (attempt === 1 && err.name !== 'AbortError') {
+        console.warn(`${label}: ${err.message}, retrying once`);
+        await new Promise(r => setTimeout(r, 1500));
+        continue;
+      }
+      throw err.name === 'AbortError' ? new Error('timed out') : err;
+    }
+  }
+}
+
+function nominatimFetch(url) {
+  return fetchWithOneRetry(
+    () => nominatimQueue(() => fetchWithTimeout(url, { headers: { 'User-Agent': OSM_USER_AGENT } }, NOMINATIM_TIMEOUT_MS)),
+    'Nominatim'
+  );
+}
+
+async function overpassQuery(query, servers) {
+  const errors = [];
+  for (const server of servers) {
+    const host = new URL(server.url).host;
+    try {
+      const r = await fetchWithOneRetry(() => overpassQueue(server.url)(() => fetchWithTimeout(server.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': OSM_USER_AGENT },
+        body: 'data=' + encodeURIComponent(query),
+      }, server.timeoutMs)), 'Overpass ' + host);
+      if (!r.ok) {
+        const text = (await r.text()).replace(/\s+/g, ' ').slice(0, 120);
+        throw new Error(`HTTP ${r.status}: ${text}`);
+      }
+      const data = await r.json();
+      if (data.remark && !(data.elements || []).length) throw new Error(data.remark);
+      return data;
+    } catch (err) {
+      console.error(`Overpass ${host} failed: ${err.message}`);
+      errors.push(`${host}: ${err.message}`);
+    }
+  }
+  throw new Error(errors.join(' | '));
+}
+
+function overpassElementToCourse(el) {
+  const tags = el.tags || {};
+  const lat = el.lat != null ? el.lat : (el.center ? el.center.lat : null);
+  const lng = el.lon != null ? el.lon : (el.center ? el.center.lon : null);
+  if (lat == null || lng == null || !tags.name) return null;
+  return { name: tags.name, lat, lng };
+}
+
+function nominatimPlaceToCourse(p) {
+  const name = p.name || (p.display_name || '').split(',')[0];
+  if (!name) return null;
+  return { name, lat: parseFloat(p.lat), lng: parseFloat(p.lon) };
+}
+
+function isGolfCourse(p) {
+  return (p.class || p.category) === 'leisure' && p.type === 'golf_course';
+}
+
+function uniqueByName(courses) {
+  const seen = new Set();
+  return courses.filter(c => c && !seen.has(c.name) && seen.add(c.name));
+}
+
+function haversineMiles(lat1, lng1, lat2, lng2) {
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 3958.8 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+async function nearbyFromOverpass(lat, lng, radiusMiles, servers) {
+  const radiusMeters = Math.round(radiusMiles * 1609.34);
+  const query = `[out:json][timeout:25];nwr["leisure"="golf_course"](around:${radiusMeters},${lat},${lng});out center 60;`;
+  const data = await overpassQuery(query, servers);
+  return uniqueByName((data.elements || []).map(overpassElementToCourse));
+}
+
+// Last-resort nearby source: Nominatim limited to a box around the point.
+async function nearbyFromNominatim(lat, lng, radiusMiles) {
+  const dLat = radiusMiles / 69;
+  const dLng = radiusMiles / (69 * Math.max(Math.cos(lat * Math.PI / 180), 0.1));
+  const viewbox = [lng - dLng, lat + dLat, lng + dLng, lat - dLat].map(n => n.toFixed(4)).join(',');
+  const url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=40&bounded=1&viewbox=' + viewbox + '&q=golf%20course';
+  const r = await nominatimFetch(url);
+  if (!r.ok) throw new Error('Nominatim HTTP ' + r.status);
+  const results = await r.json();
+  return uniqueByName(results.filter(isGolfCourse).map(nominatimPlaceToCourse))
+    .filter(c => haversineMiles(lat, lng, c.lat, c.lng) <= radiusMiles);
+}
+
+async function nearbyWithFallbacks(lat, lng, radiusMiles, cacheKey) {
+  try {
+    return { courses: await nearbyFromOverpass(lat, lng, radiusMiles, OVERPASS_SERVERS.slice(0, 1)), source: 'overpass' };
+  } catch (err) {
+    console.warn('Nearby: primary Overpass failed, trying backup Overpass and Nominatim');
+  }
+  const backup = nearbyFromOverpass(lat, lng, radiusMiles, OVERPASS_SERVERS.slice(1));
+  // Whenever the backup finishes, its fuller list replaces what's cached.
+  backup.then(courses => setCachedOsm(cacheKey, courses), () => {});
+  const nominatim = nearbyFromNominatim(lat, lng, radiusMiles);
+  try {
+    return await Promise.any([
+      backup.then(courses => ({ courses, source: 'overpass-backup' })),
+      nominatim.then(courses => {
+        if (!courses.length) throw new Error('no results');
+        return { courses, source: 'nominatim' };
+      }),
+    ]);
+  } catch (err) {
+    // Neither found anything; an empty Nominatim answer is still an answer.
+    const courses = await nominatim.catch(() => null);
+    if (courses) return { courses, source: 'nominatim' };
+    throw new Error('every course source failed');
+  }
+}
+
+async function searchFromNominatim(term) {
+  // Biasing toward "<term> golf course" matters: a bare distinctive name
+  // (e.g. "Cariari") often matches a village/neighborhood in Nominatim's
+  // general ranking before it matches the golf venue at that same name.
+  const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=10&q=' + encodeURIComponent(term + ' golf course');
+  const r = await nominatimFetch(url);
+  if (!r.ok) throw new Error('Nominatim HTTP ' + r.status);
+  const results = await r.json();
+  return uniqueByName(results.filter(isGolfCourse).map(nominatimPlaceToCourse));
+}
+
+// Attaches Foursome's own course ratings to OpenStreetMap search results —
+// done at response time rather than baked into the OSM cache entry, so
+// cached course lists stay reusable while ratings are always read fresh.
+async function enrichCoursesWithRatings(courses) {
+  const summaries = await getCourseRatingSummaries(courses.map(c => c.name));
+  return courses.map(c => ({ ...c, ...summaries.get(c.name) }));
+}
+
+const COURSE_SEARCH_UNAVAILABLE = "Course search isn't responding right now. Try again in a minute, or search by course name.";
+
 app.get('/api/golf-courses/nearby', ah(async (req, res) => {
   const lat = parseFloat(req.query.lat);
   const lng = parseFloat(req.query.lng);
@@ -1481,64 +1678,45 @@ app.get('/api/golf-courses/nearby', ah(async (req, res) => {
     return res.status(400).json({ error: 'lat and lng are required' });
   }
   const radiusMiles = Math.min(parseFloat(req.query.radiusMiles) || 50, 50);
-  const radiusMeters = Math.round(radiusMiles * 1609.34);
-  const cacheKey = `nearby:${lat.toFixed(2)}:${lng.toFixed(2)}:${radiusMiles}`;
+  // ~0.05° (3-4 miles) buckets, so nearby users share one cache entry.
+  const bucket = n => (Math.round(n * 20) / 20).toFixed(2);
+  const cacheKey = `nearby:${bucket(lat)}:${bucket(lng)}:${radiusMiles}`;
   const cached = getCachedOsm(cacheKey);
-  if (cached) return res.json({ courses: await enrichCoursesWithRatings(cached) });
+  if (cached) return res.json({ courses: await enrichCoursesWithRatings(cached), source: 'cache' });
 
-  const query = `[out:json][timeout:20];(node["leisure"="golf_course"](around:${radiusMeters},${lat},${lng});way["leisure"="golf_course"](around:${radiusMeters},${lat},${lng});relation["leisure"="golf_course"](around:${radiusMeters},${lat},${lng}););out center 60;`;
   try {
-    const r = await fetchWithTimeout('https://overpass-api.de/api/interpreter', {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain', 'User-Agent': 'FoursomeApp/1.0 (golf tee-time matching prototype; contact: foursomeapp.golf@gmail.com)' },
-      body: query
-    }, 15000);
-    if (!r.ok) throw new Error('Overpass returned ' + r.status);
-    const data = await r.json();
-    if (data.remark) throw new Error(data.remark);
-    const seen = new Set();
-    const courses = [];
-    for (const el of (data.elements || [])) {
-      const c = overpassElementToCourse(el);
-      if (c && !seen.has(c.name)) { seen.add(c.name); courses.push(c); }
-    }
-    setCachedOsm(cacheKey, courses);
-    res.json({ courses: await enrichCoursesWithRatings(courses) });
+    const result = await sharedLookup(cacheKey, async () => {
+      const r = await nearbyWithFallbacks(lat, lng, radiusMiles, cacheKey);
+      setCachedOsm(cacheKey, r.courses);
+      return r;
+    });
+    res.json({ courses: await enrichCoursesWithRatings(result.courses), source: result.source });
   } catch (err) {
-    console.error('Overpass nearby lookup failed:', err.message);
-    res.status(503).json({ error: 'Course search is temporarily unavailable — try again shortly' });
+    console.error('Nearby course lookup failed on every source:', err.message);
+    const stale = getCachedOsm(cacheKey, OSM_CACHE_STALE_MS);
+    if (stale) return res.json({ courses: await enrichCoursesWithRatings(stale), source: 'stale-cache' });
+    res.status(503).json({ error: COURSE_SEARCH_UNAVAILABLE });
   }
 }));
 
 app.get('/api/golf-courses/search', ah(async (req, res) => {
-  const term = (req.query.q || '').trim();
+  const term = (req.query.q || '').trim().replace(/\s+/g, ' ');
   if (term.length < 3) {
     return res.status(400).json({ error: 'Search term must be at least 3 characters' });
   }
   const cacheKey = `search:${term.toLowerCase()}`;
   const cached = getCachedOsm(cacheKey);
-  if (cached) return res.json({ courses: await enrichCoursesWithRatings(cached) });
+  if (cached) return res.json({ courses: await enrichCoursesWithRatings(cached), source: 'cache' });
 
   try {
-    // Biasing toward "<term> golf course" matters: a bare distinctive name
-    // (e.g. "Cariari") often matches a village/neighborhood in Nominatim's
-    // general ranking before it matches the golf venue at that same name —
-    // adding the qualifier consistently surfaces the actual course instead,
-    // without breaking searches that already include the full venue name.
-    const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=10&q=' + encodeURIComponent(term + ' golf course');
-    const r = await fetchWithTimeout(url, {
-      headers: { 'User-Agent': 'FoursomeApp/1.0 (golf tee-time matching prototype; contact: foursomeapp.golf@gmail.com)' }
-    }, 10000);
-    if (!r.ok) throw new Error('Nominatim returned ' + r.status);
-    const results = await r.json();
-    const courses = results
-      .filter(p => p.class === 'leisure' && p.type === 'golf_course')
-      .map(p => ({ name: p.name || p.display_name.split(',')[0], lat: parseFloat(p.lat), lng: parseFloat(p.lon) }));
+    const courses = await sharedLookup(cacheKey, () => searchFromNominatim(term));
     setCachedOsm(cacheKey, courses);
-    res.json({ courses: await enrichCoursesWithRatings(courses) });
+    res.json({ courses: await enrichCoursesWithRatings(courses), source: 'nominatim' });
   } catch (err) {
     console.error('Nominatim course search failed:', err.message);
-    res.status(503).json({ error: 'Course search is temporarily unavailable — try again shortly' });
+    const stale = getCachedOsm(cacheKey, OSM_CACHE_STALE_MS);
+    if (stale) return res.json({ courses: await enrichCoursesWithRatings(stale), source: 'stale-cache' });
+    res.status(503).json({ error: COURSE_SEARCH_UNAVAILABLE });
   }
 }));
 

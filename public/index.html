@@ -164,6 +164,7 @@ const state = {
   bookCourses: [],       // live results from OpenStreetMap for the current search/location context
   bookLoading: false,
   bookError: '',
+  bookNearHome: null,    // {name, lat, lng} when showing courses around the home course (location off)
   bookSearchDebounceTimer: null,
   myCourseRequests: [],  // [{id, courseName, preferredDate, preferredTime, createdAt}]
   viewingUserId: null,       // userId of the profile popover currently open, or null
@@ -369,8 +370,8 @@ function requestLocation(){
       render();
     },
     err => {
-      showToast('Could not get your location — check browser permissions');
-      console.error(err);
+      showToast(err.code === 1 ? 'Location is off. You can still search for a course by name.' : "Couldn't get your location. You can still search for a course by name.");
+      console.warn('Location failed:', err.message);
     },
     { timeout: 8000 }
   );
@@ -2386,30 +2387,64 @@ async function cancelCourseRequest(id){
 // location; with no search term, location decides what shows at all
 // (nothing until it's granted, then just what's nearby) — distance sort
 // applies whenever location is available, search or not.
+// Network trouble with course search is expected now and then, so it's
+// logged as a warning rather than an error.
 async function loadNearbyBookCourses(){
   if(!state.myLocation){ state.bookCourses = []; render(); return; }
-  state.bookLoading = true; state.bookError = ''; render();
+  state.bookLoading = true; state.bookError = ''; state.bookNearHome = null; render();
   try{
     const data = await apiGet('/api/golf-courses/nearby?lat=' + state.myLocation.lat + '&lng=' + state.myLocation.lng);
     state.bookCourses = data.courses || [];
   }catch(e){
-    state.bookError = "Couldn't load nearby courses — try again in a bit.";
+    state.bookError = "Couldn't load nearby courses right now. Try again in a minute, or search by name.";
     state.bookCourses = [];
-    console.error(e);
+    console.warn('Nearby courses failed:', e.message);
   }
   state.bookLoading = false;
   render();
 }
 
 async function searchBookCourses(term){
-  state.bookLoading = true; state.bookError = ''; render();
+  state.bookLoading = true; state.bookError = ''; state.bookNearHome = null; render();
   try{
     const data = await apiGet('/api/golf-courses/search?q=' + encodeURIComponent(term));
     state.bookCourses = data.courses || [];
   }catch(e){
-    state.bookError = "Couldn't search courses — try again in a bit.";
+    state.bookError = "Couldn't search courses right now. Try again in a minute.";
     state.bookCourses = [];
-    console.error(e);
+    console.warn('Course search failed:', e.message);
+  }
+  state.bookLoading = false;
+  render();
+}
+
+// With location off, show courses around the user's home course instead
+// of an empty screen. If the home course can't be found, this quietly
+// leaves the list empty so the screen falls back to the location prompt.
+async function loadCoursesNearHomeCourse(){
+  const home = state.profile && state.profile.homeCourse ? state.profile.homeCourse.trim() : '';
+  state.bookError = ''; state.bookNearHome = null;
+  if(home.length < 3){ state.bookCourses = []; render(); return; }
+  state.bookLoading = true; render();
+  try{
+    const found = await apiGet('/api/golf-courses/search?q=' + encodeURIComponent(home));
+    const anchor = (found.courses || [])[0];
+    if(!anchor){
+      state.bookCourses = [];
+    } else {
+      let courses = found.courses;
+      try{
+        const data = await apiGet('/api/golf-courses/nearby?lat=' + anchor.lat + '&lng=' + anchor.lng);
+        if((data.courses || []).length) courses = data.courses;
+      }catch(e){
+        console.warn('Courses near home course failed:', e.message);
+      }
+      state.bookCourses = courses;
+      state.bookNearHome = { name: anchor.name, lat: anchor.lat, lng: anchor.lng };
+    }
+  }catch(e){
+    state.bookCourses = [];
+    console.warn('Home course lookup failed:', e.message);
   }
   state.bookLoading = false;
   render();
@@ -2426,9 +2461,7 @@ async function refreshBookCourses(){
   } else if(state.myLocation){
     await loadNearbyBookCourses();
   } else {
-    state.bookCourses = [];
-    state.bookError = '';
-    render();
+    await loadCoursesNearHomeCourse();
   }
 }
 
@@ -2437,10 +2470,11 @@ function renderBook(){
 
   const term = state.bookSearch.trim();
   let courses = state.bookCourses;
-  if(state.myLocation){
+  const sortFrom = state.myLocation || state.bookNearHome;
+  if(sortFrom){
     courses = [...courses].sort((a,b) =>
-      distanceMiles(state.myLocation.lat, state.myLocation.lng, a.lat, a.lng) -
-      distanceMiles(state.myLocation.lat, state.myLocation.lng, b.lat, b.lng)
+      distanceMiles(sortFrom.lat, sortFrom.lng, a.lat, a.lng) -
+      distanceMiles(sortFrom.lat, sortFrom.lng, b.lat, b.lng)
     );
   }
   const requestedCourseNames = state.myCourseRequests.map(r => r.courseName);
@@ -2476,7 +2510,13 @@ function renderBook(){
       body = `<div class="empty">${term ? 'No courses match your search.' : 'No courses found nearby — try searching by name.'}</div>`;
     }
   } else {
-    body = courses.map(c => {
+    const nearHomeBanner = (!term && !state.myLocation && state.bookNearHome) ? `
+      <div class="card" style="padding:10px 14px; display:flex; justify-content:space-between; align-items:center; gap:8px;">
+        <div class="meta" style="opacity:0.75;">Showing courses near your home course, ${escapeHtml(state.bookNearHome.name)}. Turn on location to see courses near you.</div>
+        <button class="btn btn-primary" id="book-use-location-btn" style="flex:none; padding:6px 12px; font-size:12px;">Use my location</button>
+      </div>
+    ` : '';
+    body = nearHomeBanner + courses.map(c => {
       const already = requestedCourseNames.includes(c.name);
       const distanceLine = state.myLocation
         ? `<div class="meta">${distanceMiles(state.myLocation.lat, state.myLocation.lng, c.lat, c.lng).toFixed(1)} mi away</div>`
