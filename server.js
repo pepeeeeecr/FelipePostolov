@@ -1426,10 +1426,10 @@ app.delete('/api/course-requests/:id', ah(async (req, res) => {
 // The public Overpass server (overpass-api.de) is often at capacity — it
 // answers "502 ... All query workers are busy and the request queue is
 // full" — and was the cause of "Course search is temporarily unavailable".
-// So nearby search tries overpass-api.de first. If that fails, it asks a
-// backup Overpass server and a Nominatim search bounded to the area around
-// the user at the same time, and answers with whichever returns courses
-// first — Nominatim usually wins within a second (capped at 40 results),
+// So nearby search tries overpass-api.de first. If that fails, or hasn't
+// answered within a few seconds, it also asks a backup Overpass server and
+// a Nominatim search bounded to the area around the user, and answers with
+// whichever returns courses first — Nominatim usually wins within a second (capped at 40 results),
 // while the backup Overpass server is slower (often 20s+) but more
 // complete, so its answer still lands in the cache for the next request.
 // If every source fails, a recent cached answer for that spot is served
@@ -1624,12 +1624,13 @@ async function nearbyFromNominatim(lat, lng, radiusMiles) {
     .filter(c => haversineMiles(lat, lng, c.lat, c.lng) <= radiusMiles);
 }
 
-async function nearbyWithFallbacks(lat, lng, radiusMiles, cacheKey) {
-  try {
-    return { courses: await nearbyFromOverpass(lat, lng, radiusMiles, OVERPASS_SERVERS.slice(0, 1)), source: 'overpass' };
-  } catch (err) {
-    console.warn('Nearby: primary Overpass failed, trying backup Overpass and Nominatim');
-  }
+// How long the primary Overpass server gets on its own before the
+// fallbacks start too. A healthy server answers well within this; when
+// it's overloaded it either fails fast or hangs, and nobody should wait
+// out the hang.
+const OVERPASS_HEAD_START_MS = 4000;
+
+async function nearbyFallbacks(lat, lng, radiusMiles, cacheKey) {
   const backup = nearbyFromOverpass(lat, lng, radiusMiles, OVERPASS_SERVERS.slice(1));
   // Whenever the backup finishes, its fuller list replaces what's cached.
   backup.then(courses => setCachedOsm(cacheKey, courses), () => {});
@@ -1646,7 +1647,27 @@ async function nearbyWithFallbacks(lat, lng, radiusMiles, cacheKey) {
     // Neither found anything; an empty Nominatim answer is still an answer.
     const courses = await nominatim.catch(() => null);
     if (courses) return { courses, source: 'nominatim' };
+    throw new Error('every fallback course source failed');
+  }
+}
+
+async function nearbyWithFallbacks(lat, lng, radiusMiles, cacheKey) {
+  const primary = nearbyFromOverpass(lat, lng, radiusMiles, OVERPASS_SERVERS.slice(0, 1))
+    .then(courses => ({ courses, source: 'overpass' }));
+  // If the primary answers after a fallback already did, keep its list.
+  primary.then(r => setCachedOsm(cacheKey, r.courses), () => {});
+
+  let startFallbacks;
+  const gate = new Promise(resolve => { startFallbacks = resolve; });
+  const timer = setTimeout(startFallbacks, OVERPASS_HEAD_START_MS);
+  primary.catch(() => startFallbacks());
+  const fallbacks = gate.then(() => nearbyFallbacks(lat, lng, radiusMiles, cacheKey));
+  try {
+    return await Promise.any([primary, fallbacks]);
+  } catch (err) {
     throw new Error('every course source failed');
+  } finally {
+    clearTimeout(timer);
   }
 }
 
