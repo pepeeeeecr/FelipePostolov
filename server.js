@@ -1426,12 +1426,10 @@ app.delete('/api/course-requests/:id', ah(async (req, res) => {
 // The public Overpass server (overpass-api.de) is often at capacity — it
 // answers "502 ... All query workers are busy and the request queue is
 // full" — and was the cause of "Course search is temporarily unavailable".
-// So nearby search tries overpass-api.de first. If that fails, or hasn't
-// answered within a few seconds, it also asks a backup Overpass server and
-// a Nominatim search bounded to the area around the user, and answers with
-// whichever returns courses first — Nominatim usually wins within a second (capped at 40 results),
-// while the backup Overpass server is slower (often 20s+) but more
-// complete, so its answer still lands in the cache for the next request.
+// So nearby search asks overpass-api.de, then a backup Overpass server;
+// if neither has answered within a few seconds, Nominatim searches
+// widening boxes around the user too. Whatever arrives first is shown,
+// and everything that arrives later is merged in (see nearbyArea below).
 // If every source fails, a recent cached answer for that spot is served
 // instead of an error.
 //
@@ -1441,9 +1439,12 @@ app.delete('/api/course-requests/:id', ah(async (req, res) => {
 // a time per Overpass server, identical in-flight lookups shared rather than repeated,
 // and results cached so popular searches don't re-hit OSM at all.
 const OSM_USER_AGENT = 'FoursomeApp/1.0 (+https://felipepostolov.onrender.com; foursomeapp.golf@gmail.com)';
+// Generous timeouts: the full course list for a 50-mile area is a big
+// query, and nobody waits on it — Nominatim fills the first screen after
+// OVERPASS_HEAD_START_MS and Overpass results are merged in when they land.
 const OVERPASS_SERVERS = [
-  { url: 'https://overpass-api.de/api/interpreter', timeoutMs: 10000 },
-  { url: 'https://maps.mail.ru/osm/tools/overpass/api/interpreter', timeoutMs: 25000 },
+  { url: 'https://overpass-api.de/api/interpreter', timeoutMs: 30000 },
+  { url: 'https://maps.mail.ru/osm/tools/overpass/api/interpreter', timeoutMs: 50000 },
 ];
 const NOMINATIM_TIMEOUT_MS = 10000;
 
@@ -1632,12 +1633,17 @@ function haversineMiles(lat1, lng1, lat2, lng2) {
 
 async function nearbyFromOverpass(lat, lng, radiusMiles, servers) {
   const radiusMeters = Math.round(radiusMiles * 1609.34);
-  const query = `[out:json][timeout:25];nwr["leisure"="golf_course"](around:${radiusMeters},${lat},${lng});out center 60;`;
+  // No result cap: Overpass returns matches in no particular order, so a
+  // cap (it used to be 60) silently dropped some of the closest courses.
+  const query = `[out:json][timeout:45];nwr["leisure"="golf_course"](around:${radiusMeters},${lat},${lng});out center;`;
   const data = await overpassQuery(query, servers);
   return uniqueByName((data.elements || []).map(overpassElementToCourse));
 }
 
-// Last-resort nearby source: Nominatim limited to a box around the point.
+// Fallback nearby source: Nominatim limited to a box around the point.
+// Nominatim ranks by prominence, not distance, and returns at most 40 —
+// so one big box misses small courses close by. nominatimRings() below
+// asks for a small box first, then wider ones.
 async function nearbyFromNominatim(lat, lng, radiusMiles) {
   const dLat = radiusMiles / 69;
   const dLng = radiusMiles / (69 * Math.max(Math.cos(lat * Math.PI / 180), 0.1));
@@ -1650,51 +1656,116 @@ async function nearbyFromNominatim(lat, lng, radiusMiles) {
     .filter(c => haversineMiles(lat, lng, c.lat, c.lng) <= radiusMiles);
 }
 
-// How long the primary Overpass server gets on its own before the
-// fallbacks start too. A healthy server answers well within this; when
-// it's overloaded it either fails fast or hangs, and nobody should wait
-// out the hang.
+// Nearby results are cached per ~3.5-mile grid cell rather than per exact
+// point, so neighbours share one OSM lookup. Each cell is fetched around
+// its centre with the radius widened by NEARBY_AREA_MARGIN_MILES (more than
+// the farthest any point can be from its cell's centre), and every
+// response is then cut back to the asker's exact radius and sorted by
+// their exact distance — so sharing a cell never changes anyone's list.
+//
+// A cell's entry is { courses, complete }. Every source merges into it as
+// it arrives (never replaces it); `complete` turns true once an Overpass
+// server has answered, since that's the only source that returns every
+// course in range. Until then responses say complete: false and the apps
+// ask again shortly to pick up the rest.
+const NEARBY_GRID_DEG = 0.05;
+const NEARBY_AREA_MARGIN_MILES = 3;
+const NEARBY_MAX_RESULTS = 100;
+const NOMINATIM_RING_MILES = [5, 15]; // then the full area radius
+// How long the Overpass servers get on their own before Nominatim starts
+// too. A healthy server answers well within this; when overloaded it
+// either fails fast or hangs, and nobody should wait out the hang.
 const OVERPASS_HEAD_START_MS = 4000;
+// After an Overpass attempt for a cell, wait this long before trying
+// Overpass for that cell again.
+const OVERPASS_RETRY_GAP_MS = 2 * 60 * 1000;
+const overpassAttemptAt = new Map();
 
-async function nearbyFallbacks(lat, lng, radiusMiles, cacheKey) {
-  const backup = nearbyFromOverpass(lat, lng, radiusMiles, OVERPASS_SERVERS.slice(1));
-  // Whenever the backup finishes, its fuller list replaces what's cached.
-  backup.then(courses => setCachedOsm(cacheKey, courses), () => {});
-  const nominatim = nearbyFromNominatim(lat, lng, radiusMiles);
-  try {
-    return await Promise.any([
-      backup.then(courses => ({ courses, source: 'overpass-backup' })),
-      nominatim.then(courses => {
-        if (!courses.length) throw new Error('no results');
-        return { courses, source: 'nominatim' };
-      }),
-    ]);
-  } catch (err) {
-    // Neither found anything; an empty Nominatim answer is still an answer.
-    const courses = await nominatim.catch(() => null);
-    if (courses) return { courses, source: 'nominatim' };
-    throw new Error('every fallback course source failed');
-  }
+function nearbyArea(lat, lng, radiusMiles) {
+  const snap = n => Math.round(n / NEARBY_GRID_DEG) * NEARBY_GRID_DEG;
+  const cLat = snap(lat);
+  const cLng = snap(lng);
+  return {
+    key: `nearby:${cLat.toFixed(2)}:${cLng.toFixed(2)}:${radiusMiles}`,
+    lat: cLat,
+    lng: cLng,
+    radiusMiles: radiusMiles + NEARBY_AREA_MARGIN_MILES,
+  };
 }
 
-async function nearbyWithFallbacks(lat, lng, radiusMiles, cacheKey) {
-  const primary = nearbyFromOverpass(lat, lng, radiusMiles, OVERPASS_SERVERS.slice(0, 1))
-    .then(courses => ({ courses, source: 'overpass' }));
-  // If the primary answers after a fallback already did, keep its list.
-  primary.then(r => setCachedOsm(cacheKey, r.courses), () => {});
+function mergeNearby(key, courses, complete) {
+  const prev = getCachedOsm(key);
+  const entry = {
+    courses: uniqueByName([...(prev ? prev.courses : []), ...courses]),
+    complete: !!(complete || (prev && prev.complete)),
+  };
+  setCachedOsm(key, entry);
+  return entry;
+}
 
-  let startFallbacks;
-  const gate = new Promise(resolve => { startFallbacks = resolve; });
-  const timer = setTimeout(startFallbacks, OVERPASS_HEAD_START_MS);
-  primary.catch(() => startFallbacks());
-  const fallbacks = gate.then(() => nearbyFallbacks(lat, lng, radiusMiles, cacheKey));
-  try {
-    return await Promise.any([primary, fallbacks]);
-  } catch (err) {
-    throw new Error('every course source failed');
-  } finally {
-    clearTimeout(timer);
-  }
+// The asker's view of a cell: within their radius, closest first, with
+// the distance from their exact location.
+function nearbyForPoint(courses, lat, lng, radiusMiles) {
+  return courses
+    .map(c => ({ ...c, distanceMiles: Math.round(haversineMiles(lat, lng, c.lat, c.lng) * 10) / 10 }))
+    .filter(c => c.distanceMiles <= radiusMiles)
+    .sort((a, b) => a.distanceMiles - b.distanceMiles)
+    .slice(0, NEARBY_MAX_RESULTS);
+}
+
+// Primary Overpass server, then the backup; merges whichever answers.
+function fetchAreaFromOverpass(area) {
+  return sharedLookup('overpass:' + area.key, async () => {
+    overpassAttemptAt.set(area.key, Date.now());
+    const courses = await nearbyFromOverpass(area.lat, area.lng, area.radiusMiles, OVERPASS_SERVERS);
+    return mergeNearby(area.key, courses, true);
+  });
+}
+
+function refreshAreaFromOverpassInBackground(area) {
+  if (Date.now() - (overpassAttemptAt.get(area.key) || 0) < OVERPASS_RETRY_GAP_MS) return;
+  fetchAreaFromOverpass(area).catch(err => console.warn('Background Overpass refresh failed:', err.message));
+}
+
+// Small box, then wider ones, merging each; onProgress fires as soon as
+// there's something to show.
+function nominatimRings(area, onProgress) {
+  return sharedLookup('nominatim:' + area.key, async () => {
+    const rings = [...NOMINATIM_RING_MILES.filter(r => r < area.radiusMiles), area.radiusMiles];
+    let entry = null;
+    let lastErr = null;
+    for (const ring of rings) {
+      try {
+        entry = mergeNearby(area.key, await nearbyFromNominatim(area.lat, area.lng, ring), false);
+        if (entry.courses.length) onProgress(entry);
+      } catch (err) {
+        lastErr = err;
+        console.warn(`Nominatim ${ring}-mile ring failed:`, err.message);
+      }
+    }
+    if (!entry) throw lastErr || new Error('Nominatim failed');
+    return entry;
+  });
+}
+
+// Resolves with the cell's entry as soon as any source has something; the
+// other sources keep running and merge into the cache when they finish.
+function loadNearbyArea(area) {
+  return sharedLookup(area.key, () => new Promise((resolve, reject) => {
+    let done = false;
+    let failures = 0;
+    const answer = entry => { if (!done) { done = true; resolve(entry); } };
+    const fail = err => { if (++failures === 2 && !done) { done = true; reject(err); } };
+
+    fetchAreaFromOverpass(area).then(answer, err => {
+      console.warn('Nearby: Overpass servers failed —', err.message);
+      fail(err);
+    });
+    setTimeout(() => {
+      if (done) return; // Overpass already answered with the full list
+      nominatimRings(area, answer).then(answer, fail);
+    }, OVERPASS_HEAD_START_MS);
+  }));
 }
 
 async function searchFromNominatim(term) {
@@ -1725,25 +1796,24 @@ app.get('/api/golf-courses/nearby', ah(async (req, res) => {
     return res.status(400).json({ error: 'lat and lng are required' });
   }
   const radiusMiles = Math.min(parseFloat(req.query.radiusMiles) || 50, 50);
-  // ~0.05° (3-4 miles) buckets, so nearby users share one cache entry.
-  const bucket = n => (Math.round(n * 20) / 20).toFixed(2);
-  const cacheKey = `nearby:${bucket(lat)}:${bucket(lng)}:${radiusMiles}`;
-  const cached = getCachedOsm(cacheKey);
-  if (cached) return res.json({ courses: await enrichCoursesWithRatings(cached), source: 'cache' });
+  const area = nearbyArea(lat, lng, radiusMiles);
 
-  try {
-    const result = await sharedLookup(cacheKey, async () => {
-      const r = await nearbyWithFallbacks(lat, lng, radiusMiles, cacheKey);
-      setCachedOsm(cacheKey, r.courses);
-      return r;
-    });
-    res.json({ courses: await enrichCoursesWithRatings(result.courses), source: result.source });
-  } catch (err) {
-    console.error('Nearby course lookup failed on every source:', err.message);
-    const stale = getCachedOsm(cacheKey, OSM_CACHE_STALE_MS);
-    if (stale) return res.json({ courses: await enrichCoursesWithRatings(stale), source: 'stale-cache' });
-    res.status(503).json({ error: COURSE_SEARCH_UNAVAILABLE });
+  let entry = getCachedOsm(area.key);
+  let source = 'cache';
+  if (entry && !entry.complete) refreshAreaFromOverpassInBackground(area);
+  if (!entry) {
+    try {
+      entry = await loadNearbyArea(area);
+      source = 'live';
+    } catch (err) {
+      console.error('Nearby course lookup failed on every source:', err.message);
+      entry = getCachedOsm(area.key, OSM_CACHE_STALE_MS);
+      source = 'stale-cache';
+      if (!entry) return res.status(503).json({ error: COURSE_SEARCH_UNAVAILABLE });
+    }
   }
+  const courses = nearbyForPoint(entry.courses, lat, lng, radiusMiles);
+  res.json({ courses: await enrichCoursesWithRatings(courses), complete: entry.complete, source });
 }));
 
 app.get('/api/golf-courses/search', ah(async (req, res) => {

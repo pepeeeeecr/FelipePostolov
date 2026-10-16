@@ -2387,15 +2387,45 @@ async function cancelCourseRequest(id){
 // location; with no search term, location decides what shows at all
 // (nothing until it's granted, then just what's nearby) — distance sort
 // applies whenever location is available, search or not.
+// Bumped on every new course load, so a slower earlier request (or a poll
+// below) can tell its results are no longer wanted.
+let bookSeq = 0;
+
+// The server can answer nearby before its full course list has arrived
+// (complete: false). Ask again every few seconds, for up to two minutes,
+// so the rest fills in without the user doing anything.
+function pollNearbyUntilComplete(path, seq){
+  let tries = 0;
+  const tick = async () => {
+    if(seq !== bookSeq || tries++ >= 8) return;
+    try{
+      const data = await apiGet(path);
+      if(seq !== bookSeq) return;
+      if((data.courses || []).length){
+        state.bookCourses = data.courses;
+        if(state.tab === 'book' && !state.bookSelectedCourse) render();
+      }
+      if(data.complete) return;
+    }catch(e){ /* keep what's already shown */ }
+    setTimeout(tick, 15000);
+  };
+  setTimeout(tick, 15000);
+}
+
 // Network trouble with course search is expected now and then, so it's
 // logged as a warning rather than an error.
 async function loadNearbyBookCourses(){
+  const seq = ++bookSeq;
   if(!state.myLocation){ state.bookCourses = []; render(); return; }
   state.bookLoading = true; state.bookError = ''; state.bookNearHome = null; render();
   try{
-    const data = await apiGet('/api/golf-courses/nearby?lat=' + state.myLocation.lat + '&lng=' + state.myLocation.lng);
+    const path = '/api/golf-courses/nearby?lat=' + state.myLocation.lat + '&lng=' + state.myLocation.lng;
+    const data = await apiGet(path);
+    if(seq !== bookSeq) return;
     state.bookCourses = data.courses || [];
+    if(!data.complete) pollNearbyUntilComplete(path, seq);
   }catch(e){
+    if(seq !== bookSeq) return;
     state.bookError = "Couldn't load nearby courses right now. Try again in a minute, or search by name.";
     state.bookCourses = [];
     console.warn('Nearby courses failed:', e.message);
@@ -2405,11 +2435,14 @@ async function loadNearbyBookCourses(){
 }
 
 async function searchBookCourses(term){
+  const seq = ++bookSeq;
   state.bookLoading = true; state.bookError = ''; state.bookNearHome = null; render();
   try{
     const data = await apiGet('/api/golf-courses/search?q=' + encodeURIComponent(term));
+    if(seq !== bookSeq) return;
     state.bookCourses = data.courses || [];
   }catch(e){
+    if(seq !== bookSeq) return;
     state.bookError = "Couldn't search courses right now. Try again in a minute.";
     state.bookCourses = [];
     console.warn('Course search failed:', e.message);
@@ -2422,23 +2455,28 @@ async function searchBookCourses(term){
 // of an empty screen. If the home course can't be found, this quietly
 // leaves the list empty so the screen falls back to the location prompt.
 async function loadCoursesNearHomeCourse(){
+  const seq = ++bookSeq;
   const home = state.profile && state.profile.homeCourse ? state.profile.homeCourse.trim() : '';
   state.bookError = ''; state.bookNearHome = null;
   if(home.length < 3){ state.bookCourses = []; render(); return; }
   state.bookLoading = true; render();
   try{
     const found = await apiGet('/api/golf-courses/search?q=' + encodeURIComponent(home));
+    if(seq !== bookSeq) return;
     const anchor = (found.courses || [])[0];
     if(!anchor){
       state.bookCourses = [];
     } else {
       let courses = found.courses;
+      const path = '/api/golf-courses/nearby?lat=' + anchor.lat + '&lng=' + anchor.lng;
       try{
-        const data = await apiGet('/api/golf-courses/nearby?lat=' + anchor.lat + '&lng=' + anchor.lng);
+        const data = await apiGet(path);
         if((data.courses || []).length) courses = data.courses;
+        if(!data.complete) pollNearbyUntilComplete(path, seq);
       }catch(e){
         console.warn('Courses near home course failed:', e.message);
       }
+      if(seq !== bookSeq) return;
       state.bookCourses = courses;
       state.bookNearHome = { name: anchor.name, lat: anchor.lat, lng: anchor.lng };
     }
@@ -2518,9 +2556,13 @@ function renderBook(){
     ` : '';
     body = nearHomeBanner + courses.map(c => {
       const already = requestedCourseNames.includes(c.name);
-      const distanceLine = state.myLocation
-        ? `<div class="meta">${distanceMiles(state.myLocation.lat, state.myLocation.lng, c.lat, c.lng).toFixed(1)} mi away</div>`
-        : '';
+      const miles = c.distanceMiles != null ? c.distanceMiles
+        : state.myLocation ? distanceMiles(state.myLocation.lat, state.myLocation.lng, c.lat, c.lng) : null;
+      const distanceLine = (state.myLocation && miles != null)
+        ? `<div class="meta">${miles.toFixed(1)} mi away</div>`
+        : (!term && state.bookNearHome && miles != null)
+          ? `<div class="meta">${miles.toFixed(1)} mi from ${escapeHtml(state.bookNearHome.name)}</div>`
+          : '';
       const ratingLine = c.ratingCount > 0 ? `<div class="meta">★${c.avgRating} (${c.ratingCount} rating${c.ratingCount===1?'':'s'})</div>` : '';
       return `
         <div class="card" data-select-course="${escapeHtml(c.name)}" style="cursor:pointer;">
