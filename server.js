@@ -1573,18 +1573,44 @@ async function overpassQuery(query, servers) {
   throw new Error(errors.join(' | '));
 }
 
+// Everything OSM returns here is already tagged leisure=golf_course, but
+// that tag is also used for driving ranges, mini golf and the like, so the
+// tag alone can't separate real courses. Instead:
+// - a golf=driving_range / miniature_golf tag, or a name that says
+//   driving range, mini golf, footgolf, disc golf etc., always drops it —
+//   even "Bergen Point Golf Course - Driving Range" is just the range;
+// - a name that looks like a boardwalk, beach, park, pier or playground
+//   drops it unless the name also says golf, course, country club or
+//   links (so "Forest Park Golf Course" and "South Gleason Park Course"
+//   stay);
+// - an unnamed entry is dropped (its "name" would only be the first part
+//   of its street address, which is how "Jones Beach Boardwalk" showed up).
+const NOT_A_COURSE_NAME = /\b(driving[\s-]*range|golf[\s-]*range|practice[\s-]*range|mini(ature)?[\s-]*golf|putt[\s-]*putt|foot[\s-]*golf|disc[\s-]*golf|frisbee|top[\s-]*golf|drive[\s-]*shack|golf[\s-]*simulator)\b/i;
+const NOT_A_COURSE_TAG = new Set(['driving_range', 'miniature_golf', 'practice', 'range']);
+const NON_GOLF_PLACE_NAME = /\b(boardwalk|beach|park|pier|playground)\b/i;
+const GOLF_COURSE_NAME = /\b(golf|course|country[\s-]*club|links|cc)\b/i;
+
+function isRealGolfCourse(name, tags = {}) {
+  if (!name || !name.trim()) return false;
+  if (NOT_A_COURSE_TAG.has(tags.golf) || tags.leisure === 'miniature_golf') return false;
+  if (NOT_A_COURSE_NAME.test(name)) return false;
+  if (NON_GOLF_PLACE_NAME.test(name) && !GOLF_COURSE_NAME.test(name)) return false;
+  return true;
+}
+
 function overpassElementToCourse(el) {
   const tags = el.tags || {};
   const lat = el.lat != null ? el.lat : (el.center ? el.center.lat : null);
   const lng = el.lon != null ? el.lon : (el.center ? el.center.lon : null);
-  if (lat == null || lng == null || !tags.name) return null;
+  if (lat == null || lng == null || !isRealGolfCourse(tags.name, tags)) return null;
   return { name: tags.name, lat, lng };
 }
 
+// Needs the request to ask for extratags=1, so a golf=driving_range tag
+// is visible here.
 function nominatimPlaceToCourse(p) {
-  const name = p.name || (p.display_name || '').split(',')[0];
-  if (!name) return null;
-  return { name, lat: parseFloat(p.lat), lng: parseFloat(p.lon) };
+  if (!isRealGolfCourse(p.name, p.extratags || {})) return null;
+  return { name: p.name, lat: parseFloat(p.lat), lng: parseFloat(p.lon) };
 }
 
 function isGolfCourse(p) {
@@ -1616,7 +1642,7 @@ async function nearbyFromNominatim(lat, lng, radiusMiles) {
   const dLat = radiusMiles / 69;
   const dLng = radiusMiles / (69 * Math.max(Math.cos(lat * Math.PI / 180), 0.1));
   const viewbox = [lng - dLng, lat + dLat, lng + dLng, lat - dLat].map(n => n.toFixed(4)).join(',');
-  const url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=40&bounded=1&viewbox=' + viewbox + '&q=golf%20course';
+  const url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=40&bounded=1&extratags=1&viewbox=' + viewbox + '&q=golf%20course';
   const r = await nominatimFetch(url);
   if (!r.ok) throw new Error('Nominatim HTTP ' + r.status);
   const results = await r.json();
@@ -1675,7 +1701,7 @@ async function searchFromNominatim(term) {
   // Biasing toward "<term> golf course" matters: a bare distinctive name
   // (e.g. "Cariari") often matches a village/neighborhood in Nominatim's
   // general ranking before it matches the golf venue at that same name.
-  const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=10&q=' + encodeURIComponent(term + ' golf course');
+  const url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=10&extratags=1&q=' + encodeURIComponent(term + ' golf course');
   const r = await nominatimFetch(url);
   if (!r.ok) throw new Error('Nominatim HTTP ' + r.status);
   const results = await r.json();
