@@ -1101,7 +1101,7 @@ function renderLegalSections(sections) {
   `).join('');
 }
 
-function renderLegalPage(title, innerHtml) {
+function renderLegalPage(title, innerHtml, effectiveDate = legal.LEGAL_EFFECTIVE_DATE) {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1126,7 +1126,7 @@ function renderLegalPage(title, innerHtml) {
 <div class="wrap">
   <div class="nav"><a href="/privacy">Privacy Policy</a><a href="/terms">Terms of Service</a><a href="/support">Support</a></div>
   <h1>${legalEscapeHtml(title)}</h1>
-  <div class="effective">Effective ${legalEscapeHtml(legal.LEGAL_EFFECTIVE_DATE)}</div>
+  <div class="effective">Effective ${legalEscapeHtml(effectiveDate)}</div>
   ${innerHtml}
 </div>
 </body>
@@ -1138,7 +1138,7 @@ app.get('/privacy', (req, res) => {
 });
 
 app.get('/terms', (req, res) => {
-  res.send(renderLegalPage('Terms of Service', renderLegalSections(legal.TERMS_SECTIONS)));
+  res.send(renderLegalPage('Terms of Service', renderLegalSections(legal.TERMS_SECTIONS), legal.TERMS_EFFECTIVE_DATE));
 });
 
 app.get('/cookies', (req, res) => {

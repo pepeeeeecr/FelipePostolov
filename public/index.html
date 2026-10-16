@@ -189,6 +189,8 @@ const LEGAL_POLICY_VERSION = '2026-10-12';
 // change). Flip this back to true once both are properly set up.
 const SHOW_SOCIAL_LOGIN = false;
 const LEGAL_EFFECTIVE_DATE = 'October 12, 2026';
+// The Terms changed after the other policies, so they carry their own date.
+const TERMS_EFFECTIVE_DATE = 'October 16, 2026';
 // Standing availability tags — fixed vocabulary, mirrors AVAILABILITY_TAGS
 // in server.js.
 const AVAILABILITY_OPTIONS = [
@@ -208,7 +210,7 @@ const TERMS_SECTIONS = [
   { h: 'The short version', p: ["Foursome helps golfers post open tee times and find groups to play with. Be honest in your profile, be respectful to other golfers, and use good judgment when meeting people in person — just like you would with any app that connects you with strangers. The rest of this page spells out the details."] },
   { h: 'Who can use Foursome', p: ["You must be at least 18 years old to create a Foursome account or use the app. By using Foursome, you're confirming that you meet this requirement and that the information in your profile is accurate."] },
   { h: 'Your account', p: ["You can use Foursome as a guest (a local profile stored only on your device, with no email or password) or with a full account (email and password, managed by our authentication provider, Supabase). Either way, you're responsible for the activity on your account and for keeping your login credentials private. If you're signed in on a device you share with others, remember to sign out when you're done."] },
-  { h: "What Foursome is — and isn't", p: ['Foursome is a place for golfers to post rounds they\'ve already booked and invite others to join, or to browse rounds other golfers have posted. We are not a booking service, and posting or joining a round through Foursome does not reserve a tee time at any course. The "Book a Tee Time" feature is a waitlist: it tells us which courses golfers want to see supported, and lets us notify you if that changes — it does not book anything on your behalf.', 'Foursome is not affiliated with, endorsed by, or operated in partnership with any golf course, golf club, or booking platform. Course names and locations shown in the app come from OpenStreetMap, a public, community-run map — not from the courses themselves.'] },
+  { h: "What Foursome is — and isn't", p: ['Foursome is a place for golfers to post rounds they\'ve already booked and invite others to join, or to browse rounds other golfers have posted. We are not a booking service, and posting or joining a round through Foursome does not reserve a tee time at any course. The "Find a course" tab lets you search for courses and request the ones you\'d like to play — it does not book anything on your behalf.', 'Foursome is not affiliated with, endorsed by, or operated in partnership with any golf course, golf club, or booking platform. Course names and locations shown in the app come from OpenStreetMap, a public, community-run map — not from the courses themselves.'] },
   { h: 'Posting and joining rounds', p: ["When you post a round, the details you enter (course, date, time, number of spots, handicap range, pace, and any notes) are visible to other Foursome users. When someone requests to join your round, you decide whether to approve or deny them — Foursome doesn't guarantee that any request will be approved, or that a posted round will fill up. You're responsible for the accuracy of what you post, including making sure you've actually got a tee time to share."] },
   { h: 'Meeting people in person', p: ["Foursome connects you with other golfers, but the actual round happens off our platform, in person. We don't run background checks on users and can't guarantee the identity, behavior, or skill level of anyone you meet through the app. Use the same judgment you would with any app that connects you to strangers: consider meeting for the first time at the course itself, tell someone your plans, and trust your instincts. If something feels off, you can leave, block the other user, and report them to us."] },
   { h: 'Messaging and conduct', p: ["Chat within a round is only visible to that round's host and approved participants. When using Foursome — in chat, in your bio, in round notes, or anywhere else — don't:"], list: ['Harass, threaten, or discriminate against anyone', 'Post spam, scams, or unrelated advertising', 'Impersonate another person or misrepresent your handicap or identity', "Share anyone else's personal information without their consent", 'Use Foursome for anything illegal'] },
@@ -274,7 +276,7 @@ const HELP_SECTIONS = [
   { h: 'How do ratings work?', p: ["After playing a round together, you can rate the other person 1–5 stars. Ratings build up on a person's profile over time, so other golfers can see if someone's a reliable playing partner."] },
   { h: 'What does blocking someone do?', p: ["Blocking hides your rounds from that person (and theirs from you) in Discover, and stops either of you from requesting to join the other's rounds. You can block someone from their profile or from a round's participant list, and unblock them the same way later."] },
   { h: 'How do I report someone?', p: ["Open their profile and tap Report user, then briefly describe what happened. Reports go straight to us for review — they're separate from blocking, so you can report someone whether or not you've also blocked them."] },
-  { h: 'What is "Book a Tee Time"?', p: ["It's a waitlist, not a booking system. Search for a course you'd like supported, and optionally a preferred date/time, and we'll keep track of demand — it doesn't reserve an actual tee time at the course."] },
+  { h: 'What is "Find a course"?', p: ["It's where you find golf courses. Search by name or see what's nearby, rate courses, and request the ones you'd like to play, optionally with a preferred date/time. It doesn't reserve an actual tee time at the course."] },
   { h: 'How do I delete my account?', p: ["Go to Settings > Delete account. This is permanent — it removes your profile, hosted rounds and their chat history, ratings, and (if you're signed in) your login."] },
   { h: 'Who do I contact if I need help?', p: ['Email foursomeapp.golf@gmail.com — see Contact us in Settings for a direct link.'] },
 ];
@@ -1161,10 +1163,10 @@ function renderSettingsOverlay(){
   else if(state.settingsView === 'deleteConfirm') body = renderSettingsDeleteConfirm();
   else if(state.settingsView === 'help') body = renderSettingsDoc('Help & FAQ', HELP_SECTIONS);
   else if(state.settingsView === 'contact') body = renderSettingsContact();
-  else if(state.settingsView === 'terms') body = renderSettingsDoc('Terms of Service', TERMS_SECTIONS, true);
-  else if(state.settingsView === 'privacy') body = renderSettingsDoc('Privacy Policy', PRIVACY_SECTIONS, true);
-  else if(state.settingsView === 'cookies') body = renderSettingsDoc('Cookie Policy', COOKIE_SECTIONS, true);
-  else if(state.settingsView === 'refund') body = renderSettingsDoc('Refund Policy', REFUND_SECTIONS, true);
+  else if(state.settingsView === 'terms') body = renderSettingsDoc('Terms of Service', TERMS_SECTIONS, TERMS_EFFECTIVE_DATE);
+  else if(state.settingsView === 'privacy') body = renderSettingsDoc('Privacy Policy', PRIVACY_SECTIONS, LEGAL_EFFECTIVE_DATE);
+  else if(state.settingsView === 'cookies') body = renderSettingsDoc('Cookie Policy', COOKIE_SECTIONS, LEGAL_EFFECTIVE_DATE);
+  else if(state.settingsView === 'refund') body = renderSettingsDoc('Refund Policy', REFUND_SECTIONS, LEGAL_EFFECTIVE_DATE);
   else if(state.settingsView === 'blocked') body = renderSettingsBlocked();
   else body = renderSettingsMain();
 
@@ -1280,10 +1282,10 @@ function renderDocBody(sections){
 // Cookie/Refund/Help, which are real, structured documents rather than a
 // single paragraph. showEffectiveDate is true for the four actual legal
 // policies, false for Help (which isn't a policy and has no version).
-function renderSettingsDoc(title, sections, showEffectiveDate){
+function renderSettingsDoc(title, sections, effectiveDate){
   return `
     <h1 class="screen-title">${escapeHtml(title)}</h1>
-    ${showEffectiveDate ? `<div class="meta" style="margin-top:-10px; margin-bottom:12px;">Effective ${escapeHtml(LEGAL_EFFECTIVE_DATE)}</div>` : ''}
+    ${effectiveDate ? `<div class="meta" style="margin-top:-10px; margin-bottom:12px;">Effective ${escapeHtml(effectiveDate)}</div>` : ''}
     <div class="card">${renderDocBody(sections)}</div>
     <div class="reset-link" data-settings-nav="main" tabindex="0" role="button">Back</div>
   `;
@@ -1675,7 +1677,7 @@ function renderEntryGate(){
     return `
       <div class="content" style="padding-top: calc(60px + env(safe-area-inset-top));">
         <h1 class="screen-title">${escapeHtml(title)}</h1>
-        <div class="meta" style="margin-top:-10px; margin-bottom:12px;">Effective ${escapeHtml(LEGAL_EFFECTIVE_DATE)}</div>
+        <div class="meta" style="margin-top:-10px; margin-bottom:12px;">Effective ${escapeHtml(state.entryLegalDoc === 'terms' ? TERMS_EFFECTIVE_DATE : LEGAL_EFFECTIVE_DATE)}</div>
         <div class="card">${renderDocBody(sections)}</div>
         <div class="reset-link" id="entry-legal-back" tabindex="0" role="button" style="margin-top:8px;">Back</div>
       </div>
