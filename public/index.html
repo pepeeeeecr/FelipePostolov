@@ -147,6 +147,7 @@ const state = {
   blockedUsers: null,      // null = not loaded yet, [] = loaded and empty, else [{id, name}]
   session: null,
   entryView: 'welcome',  // 'welcome' | 'signup' | 'login' — only shown pre-profile, brand new visitors
+  welcomeNotice: '',     // shown on the welcome screen, e.g. after a guest session expires
   entryLegalDoc: null,   // null | 'terms' | 'privacy' — viewing a policy from the welcome-gate consent links
   consentChecked: false, // the welcome-gate "I am 18+ and agree..." checkbox — gates signup/login/guest
   authOverlay: null,     // null | 'signup' | 'login' — "create an account" overlay for existing guests
@@ -293,6 +294,15 @@ function uid(){
   return 'u_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 }
 
+// Guest ids come from uid() above; signed-in accounts use Supabase's UUIDs.
+const GUEST_ID_PATTERN = /^u_[a-z0-9]{6,40}$/;
+const GUEST_EXPIRED_NOTICE = 'Your guest session expired. Please continue as guest or sign in again.';
+const SESSION_EXPIRED_NOTICE = 'Your session expired. Please log in again.';
+// Shown instead of the server's raw "Sign in required" whenever a request
+// comes back 401 — handleUnauthorized() then sends the user back to the
+// welcome screen with a fuller explanation.
+const SESSION_EXPIRED_MESSAGE = 'Your session expired. Please sign in or continue as guest again.';
+
 function showToast(msg){
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -404,6 +414,85 @@ function guestHeaders(){
   return token ? { 'X-Guest-Token': token } : {};
 }
 
+// Drops a guest profile from this browser (the list, its token, and the
+// active id if it's this one). Server data is left alone — without a valid
+// token this browser can't prove it owns it anyway.
+function forgetGuest(guestId){
+  state.profileList = loadProfileList().filter(p => p.id !== guestId);
+  saveProfileList(state.profileList);
+  saveGuestToken(guestId, null);
+  if(localStorage.getItem('foursome_activeUserId') === guestId) localStorage.removeItem('foursome_activeUserId');
+}
+
+// A guest saved before guest tokens existed has none, and a token the
+// server no longer accepts is just as useless — either way every request
+// that needs an identity would fail. Old guests are never re-issued a
+// token; they start over from the welcome screen instead. A network error
+// or an older backend counts as "not stale", so nobody is thrown out just
+// because the check couldn't run.
+async function isStaleGuest(guestId){
+  const token = loadGuestTokens()[guestId];
+  if(!token) return true;
+  try{
+    const res = await fetchRetrying('/api/auth/me', { headers: { 'X-Guest-Token': token } }, { retryOnThrow: true });
+    if(res.status === 401) return true;
+    if(!res.ok) return false;
+    return (await res.json()).userId !== guestId;
+  }catch(e){
+    return false;
+  }
+}
+
+function resetToWelcome(notice){
+  if(state.chatPollInterval){
+    clearInterval(state.chatPollInterval);
+    state.chatPollInterval = null;
+  }
+  state.chatTeetimeId = null;
+  state.viewingUserId = null;
+  state.viewingUserProfile = null;
+  state.showSettings = false;
+  state.settingsView = 'main';
+  state.authOverlay = null;
+  state.editingProfile = false;
+  state.myUserId = null;
+  state.profile = null;
+  state.tab = 'discover';
+  state.entryView = 'welcome';
+  state.myCourseRequests = [];
+  state.bookSelectedCourse = null;
+  state.bookCourses = [];
+  state.bookError = '';
+  state.bookSearch = '';
+  state.welcomeNotice = notice;
+  render();
+}
+
+// Any request that comes back 401 lands here (see handleResponse). A
+// signed-in user gets one silent session refresh first; if that fails, or
+// for a guest, they go back to the welcome screen with a plain explanation
+// rather than a string of "Sign in required" errors on every screen.
+let handlingUnauthorized = false;
+async function handleUnauthorized(){
+  const userId = state.myUserId;
+  if(!userId || handlingUnauthorized) return;
+  handlingUnauthorized = true;
+  try{
+    if(state.session){
+      const { data, error } = await sbAuth.auth.refreshSession();
+      if(!error && data.session){ state.session = data.session; return; }
+      await sbAuth.auth.signOut();
+      state.session = null;
+      resetToWelcome(SESSION_EXPIRED_NOTICE);
+    } else {
+      forgetGuest(userId);
+      resetToWelcome(GUEST_EXPIRED_NOTICE);
+    }
+  }finally{
+    handlingUnauthorized = false;
+  }
+}
+
 // Folds a guest's data into the account just signed into. The guest token
 // proves this browser really is that guest — the server won't move a
 // guest's data on the bare id alone.
@@ -451,6 +540,10 @@ async function handleResponse(res, path){
     let message = 'Request failed: ' + path;
     let body = null;
     try{ body = await res.json(); if(body && body.error) message = body.error; }catch(e){ /* body wasn't JSON — a tunnel/gateway error page */ }
+    if(res.status === 401){
+      message = SESSION_EXPIRED_MESSAGE;
+      handleUnauthorized();
+    }
     const err = new Error(message);
     err.status = res.status;
     err.path = path;
@@ -591,6 +684,16 @@ async function init(){
     // only thing that resolves (or creates) a guest identity now — see
     // continueAsGuest() — so it's always the first thing anyone without a
     // session sees, every launch, not just the very first one.
+    else {
+      let expired = false;
+      for(const p of state.profileList){
+        if(GUEST_ID_PATTERN.test(p.id) && await isStaleGuest(p.id)){
+          forgetGuest(p.id);
+          expired = true;
+        }
+      }
+      if(expired) state.welcomeNotice = GUEST_EXPIRED_NOTICE;
+    }
 
     await loadTeeTimes();
     await loadAvailablePlayers();
@@ -616,12 +719,22 @@ async function continueAsGuest(){
   // Reuse this device's existing guest id/profile if there is one (so
   // resetting past the welcome gate on every launch doesn't orphan a
   // guest's earlier profile) — otherwise mint a fresh one.
+  // Only real guest profiles are candidates — a signed-out account's id
+  // can't be used without logging back in.
+  state.welcomeNotice = '';
+  const guests = state.profileList.filter(p => GUEST_ID_PATTERN.test(p.id));
   let activeId = localStorage.getItem('foursome_activeUserId');
-  if(activeId && !state.profileList.some(p => p.id === activeId)){
+  if(activeId && !guests.some(p => p.id === activeId)){
     activeId = null; // stale reference, ignore
   }
-  if(!activeId && state.profileList.length > 0){
-    activeId = state.profileList[0].id;
+  if(!activeId && guests.length > 0){
+    activeId = guests[0].id;
+  }
+  if(activeId && await isStaleGuest(activeId)){
+    forgetGuest(activeId);
+    state.welcomeNotice = GUEST_EXPIRED_NOTICE;
+    render();
+    return;
   }
   state.myUserId = activeId || uid();
   localStorage.setItem('foursome_activeUserId', state.myUserId);
@@ -649,6 +762,7 @@ async function handleAuthSuccess(session, previousGuestId){
   state.entryView = 'welcome';
   state.authOverlay = null;
   state.authError = '';
+  state.welcomeNotice = '';
   state.myCourseRequests = [];
   state.bookSelectedCourse = null;
   state.bookCourses = [];
@@ -1701,6 +1815,7 @@ function renderEntryGate(){
       </svg>
       <h1 class="screen-title" style="margin-top:20px;">Welcome</h1>
       <p style="font-size:13px; opacity:0.68; margin-top:-8px;">Create an account to keep your profile and rounds across devices, or jump straight in as a guest.</p>
+      ${state.welcomeNotice ? `<div role="alert" style="background:var(--sand); border-radius:10px; padding:10px 14px; margin-top:18px; font-size:13px; line-height:1.4;">${escapeHtml(state.welcomeNotice)}</div>` : ''}
       <div class="form-actions" style="margin-top:28px;">
         <button class="btn btn-primary" id="entry-signup" style="width:100%; margin-bottom:10px;" ${state.consentChecked ? '' : 'disabled'}>Sign up</button>
         <button class="btn btn-ghost" id="entry-login" style="width:100%; margin-bottom:10px;" ${state.consentChecked ? '' : 'disabled'}>Log in</button>
@@ -1741,11 +1856,13 @@ function attachEntryGateHandlers(){
   document.getElementById('entry-signup').addEventListener('click', () => {
     if(!state.consentChecked) return;
     recordConsentIfNeeded();
+    state.welcomeNotice = '';
     state.entryView = 'signup'; state.authError = ''; render();
   });
   document.getElementById('entry-login').addEventListener('click', () => {
     if(!state.consentChecked) return;
     recordConsentIfNeeded();
+    state.welcomeNotice = '';
     state.entryView = 'login'; state.authError = ''; render();
   });
   document.getElementById('entry-guest').addEventListener('click', () => {

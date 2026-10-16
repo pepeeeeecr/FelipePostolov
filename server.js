@@ -674,6 +674,15 @@ app.get('/checkout-cancel', (req, res) => {
 // the client — no backend changes). The one thing that needs the server is
 // folding a guest's existing data into the account they just created or
 // signed into, since that requires the service-role key.
+
+// Who the request is verified as (session or guest token) — lets the apps
+// spot a stored guest whose token is missing or no longer valid before
+// letting them back in. Never issues a token.
+app.get('/api/auth/me', (req, res) => {
+  const userId = verifiedUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Sign in required' });
+  res.json({ userId, isGuest: !req.authUser });
+});
 app.post('/api/auth/migrate-guest', ah(async (req, res) => {
   if (!req.authUser) return res.status(401).json({ error: 'Sign in required' });
   const { guestId, guestToken } = req.body;
