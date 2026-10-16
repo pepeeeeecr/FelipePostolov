@@ -1681,15 +1681,19 @@ const OVERPASS_HEAD_START_MS = 4000;
 const OVERPASS_RETRY_GAP_MS = 2 * 60 * 1000;
 const overpassAttemptAt = new Map();
 
-function nearbyArea(lat, lng, radiusMiles) {
+// Every cell is fetched at the largest radius, so a smaller radius is
+// just a narrower cut of the same cached list.
+const NEARBY_MAX_RADIUS_MILES = 50;
+
+function nearbyArea(lat, lng) {
   const snap = n => Math.round(n / NEARBY_GRID_DEG) * NEARBY_GRID_DEG;
   const cLat = snap(lat);
   const cLng = snap(lng);
   return {
-    key: `nearby:${cLat.toFixed(2)}:${cLng.toFixed(2)}:${radiusMiles}`,
+    key: `nearby:${cLat.toFixed(2)}:${cLng.toFixed(2)}`,
     lat: cLat,
     lng: cLng,
-    radiusMiles: radiusMiles + NEARBY_AREA_MARGIN_MILES,
+    radiusMiles: NEARBY_MAX_RADIUS_MILES + NEARBY_AREA_MARGIN_MILES,
   };
 }
 
@@ -1795,8 +1799,8 @@ app.get('/api/golf-courses/nearby', ah(async (req, res) => {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     return res.status(400).json({ error: 'lat and lng are required' });
   }
-  const radiusMiles = Math.min(parseFloat(req.query.radiusMiles) || 50, 50);
-  const area = nearbyArea(lat, lng, radiusMiles);
+  const radiusMiles = Math.min(parseFloat(req.query.radiusMiles) || NEARBY_MAX_RADIUS_MILES, NEARBY_MAX_RADIUS_MILES);
+  const area = nearbyArea(lat, lng);
 
   let entry = getCachedOsm(area.key);
   let source = 'cache';
