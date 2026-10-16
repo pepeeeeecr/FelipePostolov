@@ -130,7 +130,6 @@ const state = {
   myUserId: null,
   profile: null,
   profileList: [],
-  showSwitcher: false,
   tab: 'discover',
   teetimes: [],
   loading: true,
@@ -609,35 +608,6 @@ async function init(){
     document.getElementById('app').innerHTML = '<div class="loading">Something went wrong loading the app. Try refreshing.</div>';
     console.error(err);
   }
-}
-
-async function switchToProfile(userId){
-  state.myUserId = userId;
-  localStorage.setItem('foursome_activeUserId', userId);
-  try{
-    state.profile = await apiGet('/api/profiles/' + userId);
-  }catch(e){ state.profile = null; }
-  state.showSwitcher = false;
-  state.tab = 'discover';
-  state.myCourseRequests = [];
-  state.bookSelectedCourse = null;
-  state.bookCourses = [];
-  state.bookError = '';
-  state.bookSearch = '';
-  await loadTeeTimes();
-  render();
-}
-
-function startNewProfile(){
-  state.myUserId = uid();
-  state.profile = null;
-  state.showSwitcher = false;
-  state.myCourseRequests = [];
-  state.bookSelectedCourse = null;
-  state.bookCourses = [];
-  state.bookError = '';
-  state.bookSearch = '';
-  render();
 }
 
 async function continueAsGuest(){
@@ -1500,12 +1470,12 @@ function renderImpl(){
   else if(state.tab === 'book') body = renderBook();
   else if(state.tab === 'profile') body = renderProfile();
 
-  // Any full-screen overlay (switcher/chat/settings/auth/user profile) visually
+  // Any full-screen overlay (chat/settings/auth/user profile) visually
   // covers this shell completely, but without `inert` the topbar/content/navbar
   // underneath would stay in the tab order and accessibility tree — reachable
   // by keyboard or a screen reader even though nothing is clickable there
   // through the overlay. `inert` removes it from both until the overlay closes.
-  const anyOverlayOpen = state.showSwitcher || state.chatTeetimeId || state.showSettings || state.authOverlay || state.viewingUserId;
+  const anyOverlayOpen = state.chatTeetimeId || state.showSettings || state.authOverlay || state.viewingUserId;
 
   app.innerHTML = `
     <div id="main-shell" ${anyOverlayOpen ? 'inert' : ''}>
@@ -1516,7 +1486,7 @@ function renderImpl(){
           <line x1="52.35" y1="104.85" x2="148.35" y2="104.85" stroke="#C9A25C" stroke-width="3"/>
           <text x="100" y="148" font-family="Georgia, 'Times New Roman', serif" font-weight="bold" font-size="38" fill="#F6F3EC" text-anchor="middle" letter-spacing="1">SOME</text>
         </svg>
-        <div class="who" id="who-btn">${escapeHtml(state.profile.name)} ▾</div>
+        <div class="who" id="who-btn">${escapeHtml(state.profile.name)}</div>
       </div>
       <div class="content">${body}</div>
       <div class="navbar" role="navigation" aria-label="Main">
@@ -1527,7 +1497,6 @@ function renderImpl(){
         <div class="navitem ${state.tab==='profile'?'active':''}" data-tab="profile">Profile</div>
       </div>
     </div>
-    ${state.showSwitcher ? renderSwitcher() : ''}
     ${state.chatTeetimeId ? renderChatOverlay() : ''}
     ${state.showSettings ? renderSettingsOverlay() : ''}
     ${state.authOverlay ? renderAuthOverlay() : ''}
@@ -1535,10 +1504,10 @@ function renderImpl(){
   `;
 
   document.getElementById('who-btn').addEventListener('click', () => {
-    state.showSwitcher = !state.showSwitcher;
+    state.editingProfile = false;
+    state.tab = 'profile';
     render();
   });
-  if(state.showSwitcher) attachSwitcherHandlers();
   if(state.chatTeetimeId) attachChatHandlers();
   if(state.showSettings) attachSettingsHandlers();
   if(state.authOverlay) attachAuthOverlayHandlers();
@@ -1566,34 +1535,6 @@ function renderImpl(){
   if(state.tab === 'myrounds') attachMyRoundsHandlers();
   if(state.tab === 'book') attachBookHandlers();
   if(state.tab === 'profile') attachProfileHandlers();
-}
-
-function renderSwitcher(){
-  return `
-    <div id="switcher-overlay" style="position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:60; display:flex; align-items:flex-end; justify-content:center;">
-      <div style="background:#fff; width:100%; max-width:420px; border-radius:18px 18px 0 0; padding:18px 20px calc(26px + env(safe-area-inset-bottom)); max-height:70vh; overflow-y:auto;">
-        <div style="font-size:12px; font-weight:700; opacity:0.68; margin-bottom:10px;">TEST PROFILES ON THIS DEVICE</div>
-        ${state.profileList.map(p => `
-          <div class="request-row" style="padding:10px 0;">
-            <span>${escapeHtml(p.name)}${p.id === state.myUserId ? ' (active)' : ''}</span>
-            ${p.id === state.myUserId ? '' : `<button class="btn btn-ghost" style="flex:none; padding:6px 12px; font-size:12px;" data-switch="${p.id}">Switch to</button>`}
-          </div>
-        `).join('')}
-        <button class="btn btn-primary" id="switcher-new" style="width:100%; margin-top:16px;">+ Create new test profile</button>
-        <div style="text-align:center; font-size:11px; opacity:0.68; margin-top:14px; cursor:pointer;" id="switcher-close">Close</div>
-      </div>
-    </div>
-  `;
-}
-
-function attachSwitcherHandlers(){
-  document.querySelectorAll('[data-switch]').forEach(btn => {
-    btn.addEventListener('click', () => switchToProfile(btn.dataset.switch));
-  });
-  const newBtn = document.getElementById('switcher-new');
-  if(newBtn) newBtn.addEventListener('click', startNewProfile);
-  const closeBtn = document.getElementById('switcher-close');
-  if(closeBtn) closeBtn.addEventListener('click', () => { state.showSwitcher = false; render(); });
 }
 
 function renderChatOverlay(){
@@ -2048,7 +1989,7 @@ function renderDiscover(){
           </div>
           <div class="meta">${escapeHtml(t.date)} · ${escapeHtml(t.time)} · ${t.openSpots} of ${t.totalSpots} spots open</div>
           ${distanceLine}
-          <div class="meta">Hosted by <span data-view-user="${t.hostId}" style="text-decoration:underline; cursor:pointer;">${escapeHtml(t.hostName)}</span>${ratingBadge}${t.hostIsPro ? ' <span class="pill" style="border-color:var(--fairway); color:var(--fairway); font-weight:700;">PRO</span>' : ''}${t.pace ? ' · ' + escapeHtml(t.pace) + ' pace' : ''}</div>
+          <div class="meta">Hosted by <span data-view-user="${t.hostId}" style="text-decoration:underline; cursor:pointer;">${escapeHtml(t.hostName)}</span>${ratingBadge}${t.pace ? ' · ' + escapeHtml(t.pace) + ' pace' : ''}</div>
           ${hostStatLine}
           ${t.notes ? `<div class="notes">${escapeHtml(t.notes)}</div>` : ''}
           ${actionHtml}
@@ -2117,7 +2058,7 @@ function renderPost(){
     <label>Course</label>
     <input id="pt-course" placeholder="e.g. Trenton Country Club" />
     <label>Date</label>
-    <input id="pt-date" type="date" />
+    <input id="pt-date" type="date" min="${new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10)}" />
     <label>Time</label>
     <input id="pt-time" type="time" />
     <label>Total spots in the group</label>
@@ -2436,8 +2377,8 @@ function renderBook(){
   }
 
   return `
-    <h1 class="screen-title">Book a Tee Time</h1>
-    <div class="meta" style="margin:-8px 0 14px;">Real courses via OpenStreetMap — booking itself is still coming soon.</div>
+    <h1 class="screen-title">Find a course</h1>
+    <div class="meta" style="margin:-8px 0 14px;">Search for a course or see what's nearby.</div>
     ${myRequestsSection}
     <input id="book-search" placeholder="Search courses by name..." aria-label="Search courses by name" value="${escapeHtml(state.bookSearch)}" style="margin-bottom:12px;" />
     ${body}
@@ -2485,7 +2426,7 @@ function renderBookCourseDetail(course){
     </div>
     ${reviewsHtml}
     <div class="card">
-      <div class="notes" style="margin-top:0;">This course isn't bookable through Foursome yet — want us to add it?</div>
+      <div class="notes" style="margin-top:0;">Want to play here? Request this course and tell us when you'd like to go.</div>
       <label>Preferred date (optional)</label>
       <input id="book-date" type="date" />
       <label>Preferred time (optional)</label>

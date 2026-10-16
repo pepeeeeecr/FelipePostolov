@@ -58,9 +58,9 @@ WHAT FOURSOME ISN'T
 Foursome is not a tee time booking service and isn't affiliated with any
 golf course or booking platform. Posting or joining a round doesn't
 reserve anything with the course — you're responsible for actually
-having a tee time to share. The "Book a Tee Time" feature is a waitlist
-that tells us which courses golfers want supported; it doesn't book
-anything.
+having a tee time to share. The "Find a course" tab lets you search for
+courses or see what's nearby, rate them, and request the ones you'd like
+to play; it doesn't book anything.
 
 Sign up with email, or jump in as a guest with no account at all.
 ```
