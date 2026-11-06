@@ -126,9 +126,9 @@ flow (hosting and joining a round, including chat):
 
 - "Foursome Demo" — the account whose login is in the Sign-In Required
   fields above. Use this to sign in and review the app as a normal user.
-- "Foursome Demo Host" — a second account that has already posted an
-  open round and already approved "Foursome Demo" to join it, so you can
-  see a confirmed round and existing chat history immediately without
+- "Foursome Demo Host" — a second account that has posted two open
+  rounds and already approved "Foursome Demo" to join one of them, so you
+  can see a confirmed round and existing chat history immediately without
   needing the second account's credentials.
 
 HOW TO TEST
@@ -136,20 +136,24 @@ HOW TO TEST
 1. Launch the app and sign in as "Foursome Demo" (use the credentials in
    the Sign-In Required fields above — tap "Log in" on the welcome
    screen, not "Sign up" or "Continue as guest").
-2. You'll land on the Discover tab. A round at "Bethpage Black Golf
-   Course" on 2026-11-17, hosted by "Foursome Demo Host," is already
-   visible — this demonstrates browsing open rounds.
+2. You'll land on the Discover tab. Two upcoming rounds hosted by
+   "Foursome Demo Host" are visible — "Bethpage Black Golf Course" and
+   "Marine Park Golf Course" — this demonstrates browsing open rounds.
+   (Both dates are always about a week out, so neither will have
+   expired by the time you review.)
 3. Go to the "My Rounds" tab. Under rounds you've joined, you'll see
-   that round with status "Approved" — this demonstrates the join
+   the Bethpage Black round with status "Approved" — this demonstrates the join
    request/approval flow already completed by the two seeded accounts.
 4. Tap into that round's chat. You'll see two existing messages between
    the host and this account — send a new message to confirm chat works
    in both directions.
-5. To see the raw "Request to join" button itself (separate from the
+5. To see the "Request to join" button itself (separate from the
    already-approved outcome in steps 2-4): back on Discover, tap
-   "Request to join" on any other open round — this sends a pending
-   request from "Foursome Demo" without needing the host's own
-   credentials to demonstrate.
+   "Request to join" on the "Marine Park Golf Course" round. It then
+   appears under "Requested to join" on My Rounds with status
+   "Pending", and you can tap "Withdraw request" to undo it. The demo
+   accounts only see each other's rounds, so this never sends a request
+   to a real user.
 6. Other reviewable features from this same account: Profile tab (edit
    profile, set standing availability, see past rounds), Settings
    (Privacy Policy, Terms of Service, Cookie Policy, Refund Policy, Help

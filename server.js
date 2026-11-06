@@ -392,13 +392,32 @@ async function isBanned(userId) {
 const BANNED_ERROR = { error: 'Your account has been suspended.' };
 
 // The two App Review accounts ("Foursome Demo" and "Foursome Demo Host",
-// see APP_STORE_SUBMISSION.md). Their seeded round and anything they post
+// see APP_STORE_SUBMISSION.md). Their seeded rounds and anything they post
 // are only shown to each other, so real users never see sample data.
 const DEMO_USER_IDS = new Set([
   'c3f1dfd8-5b74-4d06-b1d0-a2d79cc22212', // Foursome Demo
   'cb38e683-66be-4fc9-8554-54fce4e4c3c9', // Foursome Demo Host
 ]);
 const hiddenDemoFrom = viewerId => (DEMO_USER_IDS.has(viewerId) ? new Set() : DEMO_USER_IDS);
+// Demo and real accounts never see or join each other's rounds.
+const isDemoMismatch = (viewerId, hostId) => DEMO_USER_IDS.has(viewerId) !== DEMO_USER_IDS.has(hostId);
+
+// Keeps the demo accounts' rounds from ever looking expired to App Review:
+// once one is within DEMO_ROUND_MIN_DAYS of today (or past), it's moved to
+// DEMO_ROUND_RESET_DAYS from today. Updates the rows in place too, so the
+// caller's response already has the new date.
+const DEMO_ROUND_MIN_DAYS = 3;
+const DEMO_ROUND_RESET_DAYS = 7;
+const isoDaysFromNow = days => new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
+async function keepDemoRoundsCurrent(rows) {
+  const cutoff = isoDaysFromNow(DEMO_ROUND_MIN_DAYS);
+  const stale = rows.filter(r => DEMO_USER_IDS.has(r.host_id) && r.status !== 'cancelled' && r.date < cutoff);
+  if (!stale.length) return;
+  const date = isoDaysFromNow(DEMO_ROUND_RESET_DAYS);
+  for (const r of stale) r.date = date;
+  const { error } = await supabase.from('teetimes').update({ date }).in('id', stale.map(r => r.id));
+  if (error) console.warn('keepDemoRoundsCurrent failed:', error.message);
+}
 
 async function getBannedUserIds() {
   const { data, error } = await supabase.from('users').select('user_id').eq('banned', true);
@@ -847,8 +866,8 @@ app.get('/api/teetimes', ah(async (req, res) => {
   // viewerId being present.
   const bannedIds = await getBannedUserIds();
   let visibleRows = bannedIds.size ? rows.filter(r => !bannedIds.has(r.host_id)) : rows;
-  const demoIds = hiddenDemoFrom(viewerId);
-  if (demoIds.size) visibleRows = visibleRows.filter(r => !demoIds.has(r.host_id));
+  visibleRows = visibleRows.filter(r => !isDemoMismatch(viewerId, r.host_id));
+  await keepDemoRoundsCurrent(visibleRows);
 
   // Blocking hides rounds in both directions: a blocked-or-blocking host's
   // rounds disappear from this viewer's Discover, same as this viewer's
@@ -912,7 +931,7 @@ app.post('/api/teetimes/:id/request', ah(async (req, res) => {
   if (error) return res.status(500).json({ error: 'Could not load tee time' });
   if (!row) return res.status(404).json({ error: 'Not found' });
   if (await isBanned(userId)) return res.status(403).json(BANNED_ERROR);
-  if (await isBlocked(userId, row.host_id) || hiddenDemoFrom(userId).has(row.host_id)) {
+  if (await isBlocked(userId, row.host_id) || isDemoMismatch(userId, row.host_id)) {
     return res.status(403).json({ error: "You can't request to join this round" });
   }
   const requests = row.requests || [];
