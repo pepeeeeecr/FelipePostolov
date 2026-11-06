@@ -391,6 +391,15 @@ async function isBanned(userId) {
 }
 const BANNED_ERROR = { error: 'Your account has been suspended.' };
 
+// The two App Review accounts ("Foursome Demo" and "Foursome Demo Host",
+// see APP_STORE_SUBMISSION.md). Their seeded round and anything they post
+// are only shown to each other, so real users never see sample data.
+const DEMO_USER_IDS = new Set([
+  'c3f1dfd8-5b74-4d06-b1d0-a2d79cc22212', // Foursome Demo
+  'cb38e683-66be-4fc9-8554-54fce4e4c3c9', // Foursome Demo Host
+]);
+const hiddenDemoFrom = viewerId => (DEMO_USER_IDS.has(viewerId) ? new Set() : DEMO_USER_IDS);
+
 async function getBannedUserIds() {
   const { data, error } = await supabase.from('users').select('user_id').eq('banned', true);
   if (error) {
@@ -805,8 +814,9 @@ app.get('/api/availability', ah(async (req, res) => {
     return res.status(500).json({ error: 'Could not load availability' });
   }
   const bannedIds = await getBannedUserIds();
+  const demoIds = hiddenDemoFrom(verifiedUserId(req));
   const users = (data || [])
-    .filter(u => !bannedIds.has(u.user_id))
+    .filter(u => !bannedIds.has(u.user_id) && !demoIds.has(u.user_id))
     .filter(u => Array.isArray(u.availability) && u.availability.length > 0)
     .slice(0, 100)
     .map(u => ({ id: u.user_id, name: u.name, homeCourse: u.home_course, handicap: u.handicap, availability: u.availability }));
@@ -837,6 +847,8 @@ app.get('/api/teetimes', ah(async (req, res) => {
   // viewerId being present.
   const bannedIds = await getBannedUserIds();
   let visibleRows = bannedIds.size ? rows.filter(r => !bannedIds.has(r.host_id)) : rows;
+  const demoIds = hiddenDemoFrom(viewerId);
+  if (demoIds.size) visibleRows = visibleRows.filter(r => !demoIds.has(r.host_id));
 
   // Blocking hides rounds in both directions: a blocked-or-blocking host's
   // rounds disappear from this viewer's Discover, same as this viewer's
