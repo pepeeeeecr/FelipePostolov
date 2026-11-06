@@ -912,7 +912,7 @@ app.post('/api/teetimes/:id/request', ah(async (req, res) => {
   if (error) return res.status(500).json({ error: 'Could not load tee time' });
   if (!row) return res.status(404).json({ error: 'Not found' });
   if (await isBanned(userId)) return res.status(403).json(BANNED_ERROR);
-  if (await isBlocked(userId, row.host_id)) {
+  if (await isBlocked(userId, row.host_id) || hiddenDemoFrom(userId).has(row.host_id)) {
     return res.status(403).json({ error: "You can't request to join this round" });
   }
   const requests = row.requests || [];
