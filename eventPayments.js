@@ -236,13 +236,17 @@ function makePayments(deps) {
     // with a way back into the app — it confirms nothing.
     app.get('/pay/return', (req, res) => {
       const cancelled = req.query.cancelled === '1';
+      const es = req.lang !== 'en';
+      const copy = es
+        ? { title: cancelled ? 'Pago cancelado' : 'Pago enviado', body: cancelled ? 'No se hizo ningún cobro. Tu espacio sigue reservado unos minutos más si cambiás de idea.' : 'Tu espacio se confirma en cuanto ONVO confirme el pago, normalmente en segundos.', back: 'Volver a Foursome' }
+        : { title: cancelled ? 'Payment cancelled' : 'Payment sent', body: cancelled ? 'No charge was made. Your spot is held for a few more minutes if you change your mind.' : 'Your spot is confirmed as soon as ONVO confirms the payment — usually within seconds.', back: 'Back to Foursome' };
       const app = APP_RETURN_PATTERN.test(String(req.query.app || '')) ? String(req.query.app) : 'foursomemobile://payment-return';
       const link = app + (app.includes('?') ? '&' : '?') + 'r=' + encodeURIComponent(String(req.query.r || '')) + (cancelled ? '&cancelled=1' : '');
-      res.set('Cache-Control', 'no-store').send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+      res.set('Cache-Control', 'no-store').send(`<!doctype html><html lang="${es ? 'es' : 'en'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Foursome</title></head><body style="font-family:-apple-system,system-ui,sans-serif;background:#F6F3EC;color:#1C2A1F;text-align:center;padding:64px 24px;">
-<h2 style="margin:0 0 10px;">${cancelled ? 'Payment cancelled' : 'Payment sent'}</h2>
-<p style="opacity:.75;max-width:360px;margin:0 auto 28px;line-height:1.45;">${cancelled ? 'No charge was made. Your spot is held for a few more minutes if you change your mind.' : 'Your spot is confirmed as soon as ONVO confirms the payment — usually within seconds.'}</p>
-<a href="${escapeHtml(link)}" style="display:inline-block;background:#2E5E3A;color:#fff;text-decoration:none;padding:14px 26px;border-radius:12px;font-weight:600;">Back to Foursome</a>
+<h2 style="margin:0 0 10px;">${copy.title}</h2>
+<p style="opacity:.75;max-width:360px;margin:0 auto 28px;line-height:1.45;">${copy.body}</p>
+<a href="${escapeHtml(link)}" style="display:inline-block;background:#2E5E3A;color:#fff;text-decoration:none;padding:14px 26px;border-radius:12px;font-weight:600;">${copy.back}</a>
 </body></html>`);
     });
 
