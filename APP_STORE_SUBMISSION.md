@@ -88,7 +88,7 @@ There are no analytics, ad, or tracking SDKs anywhere in the codebase.
 |---|---|---|---|---|
 | **Contact Info — Name** | Yes | App Functionality | Yes | No |
 | **Contact Info — Email Address** | Yes (only for full accounts; guest mode needs no email) | App Functionality | Yes | No |
-| **Location — Precise Location** | Yes (only when the user taps "Use my location") | App Functionality | No — sent for one on-demand nearby-course search, not stored tied to the account | No |
+| **Location — Precise Location** | Yes, once the user grants permission (checked when the app is opened or brought to the foreground, only while in use) | App Functionality | No — sent with nearby-course searches, never stored | No |
 | **User Content — Other User Content** (bio, round details/notes, chat messages, ratings & comments, reports you file) | Yes | App Functionality | Yes | No |
 | **Identifiers — User ID** | Yes | App Functionality | Yes | No |
 | **Identifiers — Device ID** (push notification token, only if notifications are enabled) | Yes, opt-in only | App Functionality | Yes | No |
@@ -163,9 +163,11 @@ HOW TO TEST
    build — email/password and guest mode are the supported sign-in
    paths for this review.
 8. Location permission: tapping "Use my location" on the Discover or
-   Book tabs triggers the standard iOS location prompt, used only to
-   sort rounds by distance and search nearby courses — no location is
-   stored tied to the account.
+   Find a course tabs triggers the standard iOS "While Using the App"
+   prompt. Once allowed, the app checks location each time it's opened
+   or brought back to the foreground — never in the background — to
+   sort rounds by distance and find nearby courses. Coordinates are
+   not stored.
 
 The backend is a public web app in its own right at
 https://felipepostolov.onrender.com, which the app talks to for
