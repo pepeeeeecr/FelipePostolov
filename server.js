@@ -12,6 +12,7 @@ const { createClient } = require('@supabase/supabase-js');
 const Stripe = require('stripe');
 const webpush = require('web-push');
 const { moderateFields } = require('./moderation');
+const { registerEventRoutes } = require('./events');
 const legal = require('./legalContent');
 
 const app = express();
@@ -319,6 +320,25 @@ async function notifyAdminOfReport(reporterId, reportedId, reason, message = nul
   let emailId = '(no id in response)';
   try { emailId = JSON.parse(bodyText).id || emailId; } catch (e) { /* non-JSON success body, unlikely */ }
   console.log(`notifyAdminOfReport: Resend accepted the email, id=${emailId}, to=${legal.ADMIN_EMAIL}`);
+}
+
+// Emails the owner (ADMIN_EMAIL) — used for event requests. Same Resend
+// setup as report emails; quietly skipped when RESEND_API_KEY isn't set.
+async function sendAdminEmail(subject, lines) {
+  if (!RESEND_API_KEY) {
+    console.warn(`sendAdminEmail: skipped "${subject}" — RESEND_API_KEY not set.`);
+    return;
+  }
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: 'Foursome <onboarding@resend.dev>', to: [legal.ADMIN_EMAIL], subject, text: lines.join('\n') }),
+    });
+    if (!res.ok) console.error(`sendAdminEmail: Resend rejected "${subject}" — HTTP ${res.status}: ${await res.text().catch(() => '')}`);
+  } catch (e) {
+    console.error(`sendAdminEmail: "${subject}" failed before a response came back:`, e.message);
+  }
 }
 
 function isParticipant(teetimeRow, userId) {
@@ -1719,6 +1739,12 @@ app.get('/api/golf-courses/search', ah(async (req, res) => {
     res.status(503).json({ error: COURSE_SEARCH_UNAVAILABLE });
   }
 }));
+
+// --- Paid events (see events.js) ------------------------------------------
+registerEventRoutes(app, {
+  supabase, ah, verifiedUserId, geocodeCourse, haversineMiles, idsBlockedBy,
+  isBanned, BANNED_ERROR, moderateFields, getUser, sendAdminEmail,
+});
 
 // Final error handler — catches anything ah() forwarded (e.g. a Supabase
 // query error) so it becomes a normal 500 response instead of crashing
