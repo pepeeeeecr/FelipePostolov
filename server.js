@@ -14,6 +14,8 @@ const { moderateFields } = require('./moderation');
 const { registerEventRoutes, isEventAdmin, eventJson } = require('./events');
 const { makePayments } = require('./eventPayments');
 const { registerSharePages } = require('./sharePages');
+const { translateErrors, push } = require('./i18n');
+const legalEs = require('./legalContent.es');
 const legal = require('./legalContent');
 
 const app = express();
@@ -224,6 +226,8 @@ async function sendExpoPush(row, title, body) {
   }
 }
 
+// title can be a function (lang) => [title, body], so each phone gets the
+// message in the language it subscribed with (Spanish if unknown).
 async function notifyUser(userId, title, body) {
   const { data: subs, error } = await supabase.from('push_subscriptions').select('*').eq('user_id', userId);
   if (error) {
@@ -231,13 +235,16 @@ async function notifyUser(userId, title, body) {
     return;
   }
   for (const row of subs || []) {
+    const lang = (row.subscription && row.subscription.lang) === 'en' ? 'en' : 'es';
+    const [msgTitle, msgBody] = typeof title === 'function' ? title(lang) : [title, body];
     if (row.platform === 'expo') {
-      await sendExpoPush(row, title, body);
+      await sendExpoPush(row, msgTitle, msgBody);
       continue;
     }
     if (!webPushConfigured) continue;
     try {
-      await webpush.sendNotification(row.subscription, JSON.stringify({ title, body }));
+      const { lang: _lang, ...subscription } = row.subscription || {};
+      await webpush.sendNotification(subscription, JSON.stringify({ title: msgTitle, body: msgBody }));
     } catch (err) {
       console.error('Push failed for', userId, err.statusCode || err.message);
       if (err.statusCode === 410 || err.statusCode === 404) {
@@ -278,9 +285,9 @@ async function notifyAdminOfReport(reporterId, reportedId, reason, message = nul
       body: JSON.stringify({
         from: 'Foursome Reports <onboarding@resend.dev>',
         to: [legal.ADMIN_EMAIL],
-        subject: message ? 'New Foursome message report' : 'New Foursome user report',
+        subject: message ? 'Nuevo reporte de mensaje en Foursome / New message report' : 'Nuevo reporte de usuario en Foursome / New user report',
         text: [
-          message ? 'A chat message was reported in Foursome.' : 'A user was reported in Foursome.',
+          message ? 'Se reportó un mensaje de chat en Foursome. (A chat message was reported.)' : 'Se reportó a un usuario en Foursome. (A user was reported.)',
           '',
           `Reporter: ${reporterId}`,
           `Reported: ${reportedId}`,
@@ -290,7 +297,7 @@ async function notifyAdminOfReport(reporterId, reportedId, reason, message = nul
             `Message ${message.id} from ${message.sender_name}: "${String(message.text).slice(0, 1000)}"`,
           ] : []),
           '',
-          'Review and act on it in Supabase Dashboard > Table Editor > user_reports',
+          'Revisalo en Supabase > Table Editor > user_reports. (Review it in Supabase > Table Editor > user_reports.)',
           '(ban by setting the reported user\'s "banned" column to true in the users table).',
         ].join('\n'),
       }),
@@ -590,6 +597,7 @@ const eventPayments = makePayments({ supabase, ah, getUser, isBanned, BANNED_ERR
 // --- Middleware ---------------------------------------------------------
 app.use(cors()); // relax to your real domain before a public launch
 app.use(attachAuthUser);
+app.use(translateErrors);
 
 // ONVO's webhook needs the raw body for its signature check, so it's
 // registered before the global JSON parser (see eventPayments.js).
@@ -847,7 +855,7 @@ app.post('/api/teetimes/:id/request', ah(async (req, res) => {
   }
   requests.push({ userId, name, handicap, status: 'pending' });
   await supabase.from('teetimes').update({ requests }).eq('id', req.params.id);
-  notifyUser(row.host_id, 'New join request', `${name} wants to join your round at ${row.course}`).catch(() => {});
+  notifyUser(row.host_id, lang => push(lang, 'joinRequest', { name, course: row.course })).catch(() => {});
   const { data: updated } = await supabase.from('teetimes').select('*').eq('id', req.params.id).single();
   res.json(await buildTeetimeResponse(updated, verifiedUserId(req)));
 }));
@@ -894,11 +902,7 @@ app.post('/api/teetimes/:id/respond', ah(async (req, res) => {
   let openSpots = row.open_spots;
   if (decision === 'approved') openSpots = Math.max(0, openSpots - 1);
   await supabase.from('teetimes').update({ requests, open_spots: openSpots }).eq('id', req.params.id);
-  const notifyTitle = decision === 'approved' ? "You're in!" : 'Request update';
-  const notifyBody = decision === 'approved'
-    ? `You're confirmed for the round at ${row.course}`
-    : `Your request for ${row.course} was declined`;
-  notifyUser(userId, notifyTitle, notifyBody).catch(() => {});
+  notifyUser(userId, lang => push(lang, decision === 'approved' ? 'approved' : 'declined', { course: row.course })).catch(() => {});
   const { data: updated } = await supabase.from('teetimes').select('*').eq('id', req.params.id).single();
   res.json(await buildTeetimeResponse(updated, verifiedUserId(req)));
 }));
@@ -941,7 +945,7 @@ app.delete('/api/teetimes/:id', ah(async (req, res) => {
   requests
     .filter(r => r.status === 'approved' || r.status === 'pending')
     .forEach(r => {
-      notifyUser(r.userId, 'Round cancelled', `The round at ${row.course} on ${row.date} was cancelled by the host.`).catch(() => {});
+      notifyUser(r.userId, lang => push(lang, 'roundCancelled', { course: row.course, date: row.date })).catch(() => {});
     });
 
   await supabase.from('messages').delete().eq('teetime_id', req.params.id);
@@ -1000,7 +1004,7 @@ app.post('/api/teetimes/:id/messages', ah(async (req, res) => {
   const blockedMe = new Set((blockers || []).map(b => b.blocker_id));
   recipientIds.forEach(rid => {
     if (blockedMe.has(rid)) return;
-    notifyUser(rid, `${name} · ${row.course}`, preview).catch(() => {});
+    notifyUser(rid, lang => push(lang, 'chat', { name, course: row.course, preview })).catch(() => {});
   });
 
   let messages;
@@ -1036,9 +1040,10 @@ function renderLegalSections(sections) {
   `).join('');
 }
 
-function renderLegalPage(title, innerHtml, effectiveDate = legal.LEGAL_EFFECTIVE_DATE) {
+function renderLegalPage(title, innerHtml, effectiveDate = legal.LEGAL_EFFECTIVE_DATE, lang = 'en') {
+  const es = lang === 'es';
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${es ? 'es' : 'en'}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -1059,9 +1064,11 @@ function renderLegalPage(title, innerHtml, effectiveDate = legal.LEGAL_EFFECTIVE
 </head>
 <body>
 <div class="wrap">
-  <div class="nav"><a href="/privacy">Privacy Policy</a><a href="/terms">Terms of Service</a><a href="/support">Support</a></div>
+  <div class="nav">${es
+    ? '<a href="/privacy">Política de Privacidad</a><a href="/terms">Términos del Servicio</a><a href="/refund">Política de Reembolsos</a><a href="/support">Soporte</a>'
+    : '<a href="/privacy">Privacy Policy</a><a href="/terms">Terms of Service</a><a href="/refund">Refund Policy</a><a href="/support">Support</a>'}</div>
   <h1>${legalEscapeHtml(title)}</h1>
-  <div class="effective">Effective ${legalEscapeHtml(effectiveDate)}</div>
+  <div class="effective">${es ? 'Vigente desde el' : 'Effective'} ${legalEscapeHtml(effectiveDate)}</div>
   ${innerHtml}
 </div>
 </body>
@@ -1069,14 +1076,17 @@ function renderLegalPage(title, innerHtml, effectiveDate = legal.LEGAL_EFFECTIVE
 }
 
 app.get('/privacy', (req, res) => {
+  if (req.lang === 'es') return res.send(renderLegalPage('Política de Privacidad', renderLegalSections(legalEs.PRIVACY_SECTIONS), legalEs.LEGAL_EFFECTIVE_DATE, 'es'));
   res.send(renderLegalPage('Privacy Policy', renderLegalSections(legal.PRIVACY_SECTIONS)));
 });
 
 app.get('/terms', (req, res) => {
+  if (req.lang === 'es') return res.send(renderLegalPage('Términos del Servicio', renderLegalSections(legalEs.TERMS_SECTIONS), legalEs.TERMS_EFFECTIVE_DATE, 'es'));
   res.send(renderLegalPage('Terms of Service', renderLegalSections(legal.TERMS_SECTIONS), legal.TERMS_EFFECTIVE_DATE));
 });
 
 app.get('/refund', (req, res) => {
+  if (req.lang === 'es') return res.send(renderLegalPage('Política de Reembolsos', renderLegalSections(legalEs.REFUND_SECTIONS), legalEs.LEGAL_EFFECTIVE_DATE, 'es'));
   res.send(renderLegalPage('Refund Policy', renderLegalSections(legal.REFUND_SECTIONS)));
 });
 
@@ -1095,6 +1105,21 @@ app.get('/support', (req, res) => {
       <p>Go to Settings &gt; Delete account in the app. This permanently removes your profile, hosted rounds and their chat history, and ratings.</p>
     </section>
   `;
+  if (req.lang === 'es') {
+    return res.send(renderLegalPage('Soporte', `
+    <section>
+      <p>¿Tiene una pregunta, encontró un error o necesita ayuda con su cuenta de Foursome? Escríbanos y le respondemos.</p>
+      <p><a href="mailto:${legalEscapeHtml(legal.ADMIN_EMAIL)}">${legalEscapeHtml(legal.ADMIN_EMAIL)}</a></p>
+    </section>
+    <section>
+      <h2>Reportar a una persona o un contenido</h2>
+      <p>Puede reportar a otra persona desde su perfil en la aplicación, o un mensaje específico desde el chat de la ronda. Si prefiere, escríbanos al correo de arriba contándonos qué pasó y lo revisamos.</p>
+    </section>
+    <section>
+      <h2>Eliminar su cuenta</h2>
+      <p>En la aplicación, vaya a Ajustes &gt; Eliminar cuenta. Esto elimina de forma permanente su perfil, las rondas que organizó y sus chats, y sus calificaciones.</p>
+    </section>`, legalEs.LEGAL_EFFECTIVE_DATE, 'es'));
+  }
   res.send(renderLegalPage('Support', body));
 });
 
@@ -1113,12 +1138,12 @@ app.post('/api/push/subscribe', async (req, res) => {
     const { data: existing } = await supabase.from('push_subscriptions').select('id').eq('endpoint', subscription.endpoint).maybeSingle();
     if (existing) {
       const { error } = await supabase.from('push_subscriptions')
-        .update({ user_id: userId, subscription, platform: 'web' })
+        .update({ user_id: userId, subscription: { ...subscription, lang: req.lang }, platform: 'web' })
         .eq('endpoint', subscription.endpoint);
       if (error) throw error;
     } else {
       const { error } = await supabase.from('push_subscriptions')
-        .insert({ user_id: userId, endpoint: subscription.endpoint, subscription, platform: 'web', created_at: Date.now() });
+        .insert({ user_id: userId, endpoint: subscription.endpoint, subscription: { ...subscription, lang: req.lang }, platform: 'web', created_at: Date.now() });
       if (error) throw error;
     }
     res.json({ ok: true });
@@ -1144,7 +1169,7 @@ app.post('/api/push/subscribe-expo', ah(async (req, res) => {
   }
   if (existing) {
     const { error } = await supabase.from('push_subscriptions')
-      .update({ user_id: userId, subscription: { token }, platform: 'expo' })
+      .update({ user_id: userId, subscription: { token, lang: req.lang }, platform: 'expo' })
       .eq('endpoint', token);
     if (error) {
       console.error('Failed to update Expo push subscription:', error.message);
@@ -1152,7 +1177,7 @@ app.post('/api/push/subscribe-expo', ah(async (req, res) => {
     }
   } else {
     const { error } = await supabase.from('push_subscriptions')
-      .insert({ user_id: userId, endpoint: token, subscription: { token }, platform: 'expo', created_at: Date.now() });
+      .insert({ user_id: userId, endpoint: token, subscription: { token, lang: req.lang }, platform: 'expo', created_at: Date.now() });
     if (error) {
       console.error('Failed to insert Expo push subscription:', error.message);
       return res.status(500).json({ error: 'Could not save subscription' });

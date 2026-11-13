@@ -10,12 +10,7 @@ const { whenLabel } = require('./events');
 const APP_STORE_URL = 'https://apps.apple.com/app/id6831230794';
 const APPLE_APP_ID = 'C8S8FTV64A.com.felipepostolov.foursome'; // Team ID + bundle ID
 
-// Spanish unless the browser asks for English first.
-function pickLang(req) {
-  const al = String(req.headers['accept-language'] || '').toLowerCase();
-  const first = al.split(',')[0].trim();
-  return first.startsWith('en') ? 'en' : 'es';
-}
+const { pickLang } = require('./i18n');
 
 const T = {
   es: {

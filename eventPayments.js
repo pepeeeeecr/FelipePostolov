@@ -12,6 +12,7 @@
 const express = require('express');
 const onvo = require('./onvo');
 const { whenLabel } = require('./events');
+const { push } = require('./i18n');
 
 const HOLD_MINUTES = 20; // enough for card + 3DS, or a SINPE Móvil transfer
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://felipepostolov.onrender.com').replace(/\/$/, '');
@@ -212,7 +213,7 @@ function makePayments(deps) {
       try {
         session = await onvo.createCheckoutSession({
           amountColones: reg.amount_colones,
-          description: `${ev.title} — ${ev.course}, ${whenLabel(new Date(ev.starts_at), ev.time_zone)}`.slice(0, 250),
+          description: `${ev.title} — ${ev.course}, ${whenLabel(new Date(ev.starts_at), ev.time_zone, req.lang)}`.slice(0, 250),
           customerEmail: req.authUser.email,
           customerName: userName,
           redirectUrl: back,
@@ -334,7 +335,7 @@ function makePayments(deps) {
       const result = await refundRegistration(reg.id);
       if (result.error) failed++; else if (!result.skipped) refunding++;
       if (deps.notifyUser) {
-        deps.notifyUser(reg.user_id, 'Event cancelled', 'An event you paid for was cancelled. Your payment is being refunded in full.').catch(() => {});
+        deps.notifyUser(reg.user_id, lang => push(lang, 'eventCancelled')).catch(() => {});
       }
     }
     return { refunding, failed };

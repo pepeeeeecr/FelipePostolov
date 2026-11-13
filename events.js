@@ -64,7 +64,7 @@ function whenLabel(date, tz, lang = 'en') {
 
 const ACTIVE_HOLD = r => r.status === 'held' && r.hold_expires_at && new Date(r.hold_expires_at) > new Date();
 
-function eventJson(row, regs, { haversineMiles, lat, lng } = {}) {
+function eventJson(row, regs, { haversineMiles, lat, lng, lang = 'en' } = {}) {
   const start = new Date(row.starts_at);
   const confirmed = regs.filter(r => r.status === 'confirmed');
   const held = regs.filter(ACTIVE_HOLD);
@@ -76,7 +76,7 @@ function eventJson(row, regs, { haversineMiles, lat, lng } = {}) {
     lng: row.lng,
     startsAt: start.toISOString(),
     timeZone: row.time_zone,
-    whenLabel: whenLabel(start, row.time_zone),
+    whenLabel: whenLabel(start, row.time_zone, lang),
     ...localParts(start, row.time_zone),
     priceColones: row.price_colones,
     currency: 'crc',
@@ -137,7 +137,7 @@ function registerEventRoutes(app, deps) {
     await fillMissingCoordinates(rows || []);
     const regs = await registrationsFor((rows || []).map(r => r.id));
     const here = Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : {};
-    res.json({ events: (rows || []).map(r => eventJson(r, regs.get(r.id), { haversineMiles, ...here })) });
+    res.json({ events: (rows || []).map(r => eventJson(r, regs.get(r.id), { haversineMiles, ...here, lang: req.lang })) });
   }));
 
   // One event. Signed-in users see who's going; guests only see the count.
@@ -149,7 +149,7 @@ function registerEventRoutes(app, deps) {
     const lng = parseFloat(req.query.lng);
     const regs = (await registrationsFor([row.id])).get(row.id);
     const here = Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : {};
-    const json = eventJson(row, regs, { haversineMiles, ...here });
+    const json = eventJson(row, regs, { haversineMiles, ...here, lang: req.lang });
     const viewerId = verifiedUserId(req);
     const mine = viewerId ? regs.find(r => r.user_id === viewerId && ['held', 'confirmed', 'refund_pending'].includes(r.status)) : null;
     json.myStatus = mine ? (mine.status === 'held' && !ACTIVE_HOLD(mine) ? null : mine.status) : null;
@@ -187,12 +187,12 @@ function registerEventRoutes(app, deps) {
       console.error('Failed to save event request:', error.message);
       return res.status(500).json({ error: 'Could not send your request' });
     }
-    sendAdminEmail('New Foursome event request', [
-      'Someone asked for an event.',
+    sendAdminEmail('Nueva solicitud de evento en Foursome / New event request', [
+      'Alguien pidió un evento. (Someone asked for an event.)',
       '',
-      `From: ${userName || '(no name)'} (${userId})`,
-      `Course: ${course}`,
-      note ? `Note: ${note}` : 'Note: (none)',
+      `De / From: ${userName || '(sin nombre)'} (${userId})`,
+      `Campo / Course: ${course}`,
+      `Nota / Note: ${note || '(ninguna / none)'}`,
     ]).catch(() => {});
     res.json({ ok: true });
   }));
@@ -239,7 +239,7 @@ function registerEventRoutes(app, deps) {
     const { data: rows, error } = await supabase.from('events').select('*').order('starts_at', { ascending: false }).limit(200);
     if (error) return res.status(500).json({ error: 'Could not load events' });
     const regs = await registrationsFor((rows || []).map(r => r.id));
-    res.json({ events: (rows || []).map(r => eventJson(r, regs.get(r.id))) });
+    res.json({ events: (rows || []).map(r => eventJson(r, regs.get(r.id), { lang: req.lang })) });
   }));
 
   app.post('/api/admin/events', ah(async (req, res) => {
@@ -254,7 +254,7 @@ function registerEventRoutes(app, deps) {
       console.error('Failed to create event:', error.message);
       return res.status(500).json({ error: 'Could not create the event' });
     }
-    res.json(eventJson(row, []));
+    res.json(eventJson(row, [], { lang: req.lang }));
   }));
 
   app.post('/api/admin/events/:id', ah(async (req, res) => {
@@ -285,7 +285,7 @@ function registerEventRoutes(app, deps) {
       console.error('Failed to update event:', error.message);
       return res.status(500).json({ error: 'Could not save the event' });
     }
-    res.json(eventJson(row, regs));
+    res.json(eventJson(row, regs, { lang: req.lang }));
   }));
 
   // Cancelling an event (with refunds) lives in eventPayments.js.
