@@ -134,6 +134,7 @@ const state = {
   teetimes: [],
   loading: true,
   filters: { pace: '', maxDistance: '', courseSearch: '', dateFilter: '', maxHandicapDiff: '' },
+  distanceUnit: loadDistanceUnit(),  // 'km' (default) | 'mi', remembered in this browser
   discoverSearchFocused: false,
   myLocation: null,
   chatTeetimeId: null,
@@ -336,6 +337,35 @@ function distanceMiles(lat1, lng1, lat2, lng2){
   const dLng = toRad(lng2 - lng1);
   const a = Math.sin(dLat/2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng/2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// Distances are worked out in miles everywhere (and the server sends miles);
+// these turn them into whatever unit the user picked for display.
+const KM_PER_MILE = 1.609344;
+
+function loadDistanceUnit(){
+  try{ return localStorage.getItem('foursome_distanceUnit') === 'mi' ? 'mi' : 'km'; }
+  catch(e){ return 'km'; }
+}
+
+function setDistanceUnit(unit){
+  state.distanceUnit = unit === 'mi' ? 'mi' : 'km';
+  // The max-distance filter is in the old unit, so clear it rather than let
+  // it silently mean something else.
+  state.filters.maxDistance = '';
+  try{ localStorage.setItem('foursome_distanceUnit', state.distanceUnit); }catch(e){ /* keep the in-memory choice */ }
+  render();
+}
+
+function formatDistance(miles){
+  const unit = state.distanceUnit;
+  const value = unit === 'mi' ? miles : miles * KM_PER_MILE;
+  return `${value.toFixed(1)} ${unit === 'mi' ? 'mi' : 'km'}`;
+}
+
+// A distance picked in the user's unit, as miles.
+function toMiles(value){
+  return state.distanceUnit === 'mi' ? value : value / KM_PER_MILE;
 }
 
 function loadCachedLocation(){
@@ -1221,6 +1251,16 @@ function renderSettingsMain(){
       </div>
     </div>
 
+    <div class="settings-group-label">PREFERENCES</div>
+    <div class="settings-card">
+      <div class="settings-row">
+        <span>Distance units</span>
+        <span role="radiogroup" aria-label="Distance units" style="display:flex; gap:6px;">
+          ${[['km','Kilometers'],['mi','Miles']].map(([u, label]) => `<button class="btn ${state.distanceUnit === u ? 'btn-primary' : 'btn-ghost'}" role="radio" aria-checked="${state.distanceUnit === u}" data-distance-unit="${u}" style="flex:none; padding:5px 14px; font-size:12px;">${label}</button>`).join('')}
+        </span>
+      </div>
+    </div>
+
     <div class="settings-group-label">PRIVACY &amp; SAFETY</div>
     <div class="settings-card">
       <div class="settings-row" data-settings-nav="blocked"><span>Blocked users</span><span>›</span></div>
@@ -1339,6 +1379,10 @@ function attachSettingsHandlers(){
     state.settingsView = 'main';
     state.settingsError = '';
     render();
+  });
+
+  document.querySelectorAll('[data-distance-unit]').forEach(el => {
+    el.addEventListener('click', () => setDistanceUnit(el.dataset.distanceUnit));
   });
 
   document.querySelectorAll('[data-settings-nav]').forEach(el => {
@@ -1903,7 +1947,7 @@ function renderDiscover(){
     open = open.filter(t => t.pace === state.filters.pace);
   }
   if(state.filters.maxDistance && state.myLocation){
-    const maxMiles = parseFloat(state.filters.maxDistance);
+    const maxMiles = toMiles(parseFloat(state.filters.maxDistance));
     open = open.filter(t => {
       if(t.lat == null || t.lng == null) return true; // unknown distance, don't hide it
       return distanceMiles(state.myLocation.lat, state.myLocation.lng, t.lat, t.lng) <= maxMiles;
@@ -1960,10 +2004,7 @@ function renderDiscover(){
         <label style="margin-top:${showPace ? '10px' : '0'};">Max distance</label>
         <select id="filter-distance">
           <option value="">Any distance</option>
-          <option value="5" ${state.filters.maxDistance==='5'?'selected':''}>Within 5 mi</option>
-          <option value="10" ${state.filters.maxDistance==='10'?'selected':''}>Within 10 mi</option>
-          <option value="25" ${state.filters.maxDistance==='25'?'selected':''}>Within 25 mi</option>
-          <option value="50" ${state.filters.maxDistance==='50'?'selected':''}>Within 50 mi</option>
+          ${['5','10','25','50'].map(v => `<option value="${v}" ${state.filters.maxDistance===v?'selected':''}>Within ${v} ${state.distanceUnit}</option>`).join('')}
         </select>
       ` : ''}
       ${showSkill ? `
@@ -2019,7 +2060,7 @@ function renderDiscover(){
         ? `<div class="meta">Host handicap: ${escapeHtml(String(t.hostHandicap))} · ${roundsHostedBy(t.hostId)} round${roundsHostedBy(t.hostId)===1?'':'s'} hosted</div>`
         : '';
       const distanceLine = (state.myLocation && t.lat != null && t.lng != null)
-        ? `<div class="meta">${distanceMiles(state.myLocation.lat, state.myLocation.lng, t.lat, t.lng).toFixed(1)} mi away</div>`
+        ? `<div class="meta">${formatDistance(distanceMiles(state.myLocation.lat, state.myLocation.lng, t.lat, t.lng))} away</div>`
         : '';
       const ratingBadge = t.hostRatingCount > 0
         ? ` · ★${t.hostAvgRating} (${t.hostRatingCount})`
@@ -2412,9 +2453,9 @@ function renderBook(){
       const miles = c.distanceMiles != null ? c.distanceMiles
         : state.myLocation ? distanceMiles(state.myLocation.lat, state.myLocation.lng, c.lat, c.lng) : null;
       const distanceLine = (state.myLocation && miles != null)
-        ? `<div class="meta">${miles.toFixed(1)} mi away</div>`
+        ? `<div class="meta">${formatDistance(miles)} away</div>`
         : (!term && state.bookNearHome && miles != null)
-          ? `<div class="meta">${miles.toFixed(1)} mi from ${escapeHtml(state.bookNearHome.name)}</div>`
+          ? `<div class="meta">${formatDistance(miles)} from ${escapeHtml(state.bookNearHome.name)}</div>`
           : '';
       const ratingLine = FEATURES.courseReviews && c.ratingCount > 0 ? `<div class="meta">★${c.avgRating} (${c.ratingCount} rating${c.ratingCount===1?'':'s'})</div>` : '';
       return `
