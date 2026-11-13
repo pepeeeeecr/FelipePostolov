@@ -1,7 +1,7 @@
 {
   "name": "foursome-backend",
   "version": "1.0.0",
-  "description": "Real payment verification backend for the Foursome app - Stripe checkout + webhook + Supabase",
+  "description": "Backend for the Foursome app - Supabase, course search, push notifications, and Stripe webhook for paid events",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

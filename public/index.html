@@ -236,7 +236,7 @@ const PRIVACY_SECTIONS = [
   ] },
   { h: 'How we use your information', list: ['To run the core features — posting/joining rounds, matching you with other golfers, messaging within a round, and showing ratings and mutual-round history on profiles', 'To help you find nearby rounds and courses when you choose to share your location', 'To respond to reports and enforce our Terms of Service', "To send you notifications you've opted into", 'To keep Foursome secure and working reliably'], p: ["We don't use your information for advertising, and we don't sell it to third parties."] },
   { h: 'Who can see what', p: ["Your name, home course, handicap, bio, and rating are visible to other Foursome users, particularly anyone viewing a round you're hosting or joining. Round chat is only visible to that round's host and approved participants. Reports you file are visible only to us."] },
-  { h: 'Third parties we work with', p: ['We use a small number of outside services to run Foursome:'], list: ["Supabase — our database, authentication, and hosting provider. Your account, profile, and app data are stored on Supabase's infrastructure.", 'OpenStreetMap (Nominatim and Overpass) — public, community-run map data we query to look up golf course names and locations. We only send a search term or coordinates for that lookup, never your identity.', 'Stripe — if and when Foursome offers a paid Pro plan, Stripe handles payment directly; we never see or store your full card details.'] },
+  { h: 'Third parties we work with', p: ['We use a small number of outside services to run Foursome:'], list: ["Supabase — our database, authentication, and hosting provider. Your account, profile, and app data are stored on Supabase's infrastructure.", 'OpenStreetMap (Nominatim and Overpass) — public, community-run map data we query to look up golf course names and locations. We only send a search term or coordinates for that lookup, never your identity.'] },
   { h: 'How long we keep your data', p: ["We keep your data for as long as your account is active. If you delete your account from Settings, we permanently remove your profile, the rounds you've hosted (and their chat history), your ratings, your push subscription, and your blocks — and, if you were signed in, your login itself. Reports you filed against others are deleted too.", "One exception: if someone else filed a report about you, we keep that report even after you delete your account, since it's part of our safety record and not something a person should be able to erase by leaving."] },
   { h: 'Your choices', list: ["Location is entirely opt-in — the app works without it, just without distance sorting and nearby course search.", 'You can edit your profile (name, home course, handicap, bio) any time from Settings.', 'You can turn push notifications on or off from Settings.', 'You can block or report another user any time from their profile.', 'You can delete your account entirely from Settings — see above for what that removes.'] },
   { h: "Children's privacy", p: ["Foursome isn't intended for anyone under 18, and we don't knowingly collect information from anyone under that age."] },
@@ -261,8 +261,8 @@ const COOKIE_SECTIONS = [
 ];
 
 const REFUND_SECTIONS = [
-  { h: 'The short version', p: ["Foursome is currently free to use, with no paid features enabled. Since there's nothing to buy, there's nothing to refund."] },
-  { h: 'If that changes', p: ["If Foursome ever introduces a paid plan, we'll update this policy before charging anyone, so it accurately describes how refunds work for whatever's actually offered at that time."] },
+  { h: 'The short version', p: ["Foursome is free to use. Since there's nothing to buy, there's nothing to refund."] },
+  { h: 'If that changes', p: ["If Foursome introduces paid events, we'll update this policy before charging anyone, so it accurately describes how refunds work for whatever's actually offered at that time."] },
   { h: 'Contact', p: ['Questions about this policy? Email us at foursomeapp.golf@gmail.com.'] },
 ];
 
@@ -998,7 +998,6 @@ async function postTeeTime(data){
     await apiPost('/api/teetimes', {
       hostId: state.myUserId,
       hostName: state.profile.name,
-      hostIsPro: !!state.profile.isPro,
       hostHandicap: state.profile.handicap,
       course: data.course,
       date: data.date,
@@ -1149,58 +1148,6 @@ async function recordView(teetimeId){
   try{
     await apiPost('/api/teetimes/' + teetimeId + '/view', { userId: state.myUserId });
   }catch(e){ /* non-critical */ }
-}
-
-async function startCheckout(){
-  try{
-    const data = await apiPost('/api/checkout', {
-      userId: state.myUserId,
-      successUrl: window.location.origin + '/checkout-success',
-      cancelUrl: window.location.origin + '/checkout-cancel'
-    });
-    if(!data.url) throw new Error('No checkout URL returned');
-    window.open(data.url, '_blank');
-    showToast('Complete payment in the new tab, then tap "I\'ve paid" here');
-  }catch(e){
-    showToast('Could not start checkout — try again in a few seconds');
-    console.error(e);
-  }
-}
-
-async function refreshProStatus(){
-  try{
-    const data = await apiGet('/api/pro-status');
-    const wasPro = !!state.profile.isPro;
-    state.profile = Object.assign({}, state.profile, { isPro: data.isPro });
-    if(data.isPro && !wasPro){
-      showToast("Payment confirmed — you're Pro!");
-    } else if(!data.isPro && wasPro){
-      showToast('Subscription cancelled — back to Free plan');
-    } else if(data.isPro){
-      showToast('Still on Pro plan');
-    } else {
-      showToast('No confirmed payment yet. Finish checkout in the other tab, then try again.');
-    }
-    render();
-  }catch(e){
-    showToast(e.status === 401 ? 'Log in or create an account to check your plan' : 'Could not reach the server — try again shortly.');
-    console.error(e);
-  }
-}
-
-async function openBillingPortal(){
-  try{
-    const data = await apiPost('/api/portal', {
-      userId: state.myUserId,
-      returnUrl: window.location.origin
-    });
-    if(!data.url) throw new Error('No portal URL returned');
-    window.open(data.url, '_blank');
-    showToast('Manage or cancel in the new tab, then tap "Refresh status" here');
-  }catch(e){
-    showToast('Could not open subscription management — try again');
-    console.error(e);
-  }
 }
 
 async function changePassword(newPassword, confirmPassword){
@@ -2785,11 +2732,6 @@ function renderProfile(){
         `).join('')}
       </div>
     ` : ''}
-
-    <!-- Pro plan / upgrade card intentionally hidden for now (Pro gating is
-         disabled app-wide) — the Stripe checkout/portal/refresh-status code
-         behind it is untouched, so this card can come back by re-adding it
-         here. See renderProfile()/attachProfileHandlers() history. -->
 
     <div class="settings-card">
       <div class="settings-row" id="open-settings"><span>⚙ Settings</span><span>›</span></div>

@@ -1,8 +1,7 @@
-// Foursome backend — now the single source of truth for everything:
-// profiles, tee times, and real Stripe payment verification. Also serves
-// the app itself as a real website (see /public/index.html), which is
-// what makes the payment button actually work — no more sandboxed
-// artifact blocking outbound requests.
+// Foursome backend — the single source of truth for profiles, tee times,
+// messages and course search. Also serves the app itself as a website
+// (see /public/index.html). Stripe is set up (client + signed webhook) for
+// paid events, which aren't built yet.
 
 require('dotenv').config();
 const express = require('express');
@@ -21,7 +20,7 @@ const PORT = process.env.PORT || 3000;
 const stripeConfigured = !!process.env.STRIPE_SECRET_KEY;
 const stripe = stripeConfigured ? Stripe(process.env.STRIPE_SECRET_KEY) : null;
 if (!stripeConfigured) {
-  console.warn('STRIPE_SECRET_KEY not set — payment routes are disabled until STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET and STRIPE_PRICE_ID are configured.');
+  console.warn('STRIPE_SECRET_KEY not set — the Stripe webhook is disabled until STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET are configured.');
 }
 
 // Web push (VAPID) needs our own keys; Expo's push service doesn't — any
@@ -57,33 +56,11 @@ async function getUser(userId) {
   return data;
 }
 
-async function upsertProStatus(userId, isPro, stripeCustomerId) {
-  const existing = await getUser(userId);
-  if (existing) {
-    const { error } = await supabase.from('users').update({
-      is_pro: isPro,
-      stripe_customer_id: stripeCustomerId || existing.stripe_customer_id,
-      updated_at: Date.now()
-    }).eq('user_id', userId);
-    if (error) throw error;
-  } else {
-    const { error } = await supabase.from('users').insert({
-      user_id: userId,
-      name: 'Unknown',
-      is_pro: isPro,
-      stripe_customer_id: stripeCustomerId || null,
-      updated_at: Date.now()
-    });
-    if (error) throw error;
-  }
-}
-
 function teetimeRowToJson(row) {
   return {
     id: row.id,
     hostId: row.host_id,
     hostName: row.host_name,
-    hostIsPro: !!row.host_is_pro,
     hostHandicap: row.host_handicap,
     course: row.course,
     lat: row.lat,
@@ -212,7 +189,6 @@ async function toProfileJson(row, viewerId) {
     homeCourse: row.home_course,
     handicap: row.handicap,
     bio: row.bio || '',
-    isPro: !!row.is_pro,
     availability: row.availability || [],
     avgRating: summary.avgRating,
     ratingCount: summary.ratingCount
@@ -572,7 +548,8 @@ app.use(cors()); // relax to your real domain before a public launch
 app.use(attachAuthUser);
 
 // Stripe webhook needs the raw body for signature verification, so it's
-// registered before the global JSON parser.
+// registered before the global JSON parser. Kept (with no handlers yet) for
+// paid events.
 app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), ah(async (req, res) => {
   if (!stripeConfigured || !process.env.STRIPE_WEBHOOK_SECRET) {
     return res.status(503).json({ error: 'Stripe is not configured on this server yet' });
@@ -586,112 +563,14 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), ah(as
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object;
-    const userId = session.client_reference_id;
-    if (userId) {
-      await upsertProStatus(userId, true, session.customer);
-      console.log(`Marked ${userId} as Pro after real Stripe payment.`);
-    }
-  }
-
-  if (event.type === 'customer.subscription.deleted') {
-    const subscription = event.data.object;
-    const customerId = subscription.customer;
-    const { data: user, error } = await supabase.from('users').select('*').eq('stripe_customer_id', customerId).maybeSingle();
-    if (error) {
-      console.error('Failed to look up user for cancelled subscription:', error.message);
-    } else if (user) {
-      await upsertProStatus(user.user_id, false, customerId);
-      console.log(`Revoked Pro for ${user.user_id} after subscription cancellation.`);
-    }
-  }
+  // Nothing is handled yet — paid events will act on payment events here.
+  console.log('Stripe webhook received:', event.type);
 
   res.json({ received: true });
 }));
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
-
-// --- Stripe checkout ---------------------------------------------------
-app.post('/api/checkout', ah(async (req, res) => {
-  if (!stripeConfigured) {
-    return res.status(503).json({ error: 'Stripe is not configured on this server yet' });
-  }
-  const { successUrl, cancelUrl } = req.body;
-  const userId = verifiedUserId(req);
-  if (!userId) return res.status(401).json({ error: 'Sign in required' });
-  if (!userId || !successUrl || !cancelUrl) {
-    return res.status(400).json({ error: 'userId, successUrl and cancelUrl are required' });
-  }
-  if (!process.env.STRIPE_PRICE_ID) {
-    return res.status(500).json({ error: 'STRIPE_PRICE_ID not configured on the server' });
-  }
-  try {
-    const session = await stripe.checkout.sessions.create({
-      mode: 'subscription',
-      line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1 }],
-      client_reference_id: userId,
-      success_url: successUrl,
-      cancel_url: cancelUrl,
-    });
-    res.json({ url: session.url });
-  } catch (err) {
-    console.error('Failed to create checkout session:', err.message);
-    res.status(500).json({ error: 'Could not start checkout' });
-  }
-}));
-
-app.get('/api/pro-status', ah(async (req, res) => {
-  const userId = verifiedUserId(req);
-  if (!userId) return res.status(401).json({ error: 'Sign in required' });
-  const user = await getUser(userId);
-  res.json({ isPro: !!(user && user.is_pro) });
-}));
-
-app.post('/api/portal', ah(async (req, res) => {
-  if (!stripeConfigured) {
-    return res.status(503).json({ error: 'Stripe is not configured on this server yet' });
-  }
-  const { returnUrl } = req.body;
-  const userId = verifiedUserId(req);
-  if (!userId) return res.status(401).json({ error: 'Sign in required' });
-  if (!userId || !returnUrl) {
-    return res.status(400).json({ error: 'userId and returnUrl are required' });
-  }
-  const user = await getUser(userId);
-  if (!user || !user.stripe_customer_id) {
-    return res.status(400).json({ error: 'No Stripe customer found for this user — nothing to manage yet' });
-  }
-  try {
-    const session = await stripe.billingPortal.sessions.create({
-      customer: user.stripe_customer_id,
-      return_url: returnUrl
-    });
-    res.json({ url: session.url });
-  } catch (err) {
-    console.error('Failed to create portal session:', err.message);
-    res.status(500).json({ error: 'Could not open subscription management' });
-  }
-}));
-
-app.get('/checkout-success', (req, res) => {
-  res.send(`
-    <html><body style="font-family:sans-serif; text-align:center; padding:60px 20px;">
-      <h2>Payment complete 🎉</h2>
-      <p>Close this tab and go back to Foursome — tap "I've paid, check status" there.</p>
-    </body></html>
-  `);
-});
-
-app.get('/checkout-cancel', (req, res) => {
-  res.send(`
-    <html><body style="font-family:sans-serif; text-align:center; padding:60px 20px;">
-      <h2>Checkout cancelled</h2>
-      <p>No charge was made. You can close this tab and go back to Foursome.</p>
-    </body></html>
-  `);
-});
 
 // --- Auth -----------------------------------------------------------------
 // Sign-up/login themselves happen client-side against Supabase Auth
@@ -891,19 +770,12 @@ app.post('/api/teetimes', ah(async (req, res) => {
   if (modError) return res.status(400).json(modError);
   if (await isBanned(hostId)) return res.status(403).json(BANNED_ERROR);
 
-  // Pro gating is disabled for now (see is_pro on the users table) — this
-  // is still read for host_is_pro's display badge, just not used to limit
-  // anything. Never trust a client-supplied "isPro" flag either way.
-  const hostUser = await getUser(hostId);
-  const reallyIsPro = !!(hostUser && hostUser.is_pro);
-
   const id = 'tt_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const geo = await geocodeCourse(course); // null if not found — round still posts, just without distance
   const { data: row, error } = await supabase.from('teetimes').insert({
     id,
     host_id: hostId,
     host_name: hostName,
-    host_is_pro: reallyIsPro,
     host_handicap: hostHandicap || null,
     course,
     lat: geo ? geo.lat : null,

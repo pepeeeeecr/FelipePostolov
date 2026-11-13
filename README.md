@@ -2,10 +2,9 @@
 
 This is the real server and database behind Foursome. It serves the app
 itself as a website (`/public/index.html`), stores everything in Supabase
-(Postgres + Auth), verifies real Stripe payments via signed webhook (Pro
-gating is currently disabled app-wide, so this path is dormant), looks up
-golf courses via OpenStreetMap, and sends push notifications (web and
-Expo/mobile).
+(Postgres + Auth), looks up golf courses via OpenStreetMap, and sends
+push notifications (web and Expo/mobile). Stripe is set up for paid
+events, which aren't built yet.
 
 ## What's actually in here
 
@@ -20,10 +19,10 @@ Expo/mobile).
   (`supabase-enable-rls.sql`); the server only ever talks to Supabase with
   the `service_role` key, which bypasses RLS, so RLS exists to protect the
   tables if the anon key were ever used directly.
-- **Payments**: Stripe, verified only through its signed webhook — a
-  client-side button click alone can never mark someone Pro. The Pro
-  plan UI is currently hidden/disabled in the app, so this code path
-  isn't reachable from the live app right now.
+- **Payments**: not in use yet. The Stripe client and a signed webhook
+  route (`/api/stripe/webhook`) are in place for paid events; the webhook
+  verifies the signature and logs the event, but doesn't act on anything
+  yet.
 - **Course lookup**: OpenStreetMap (Nominatim/Overpass), queried by name
   or coordinates — no user identity is sent with these requests.
 - **Push notifications**: Web Push (VAPID) for the website, Expo push
@@ -38,19 +37,15 @@ Expo/mobile).
 4. Under **Environment**, add the variables listed in `.env.example`:
    `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (required), and
    `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` if you want push
-   notifications. Leave the Stripe variables blank unless you're actually
-   enabling the Pro plan.
+   notifications. The Stripe variables are only needed for paid events.
 5. Deploy. Render gives you a URL like `https://foursome-backend.onrender.com`.
-6. (Optional, Stripe) In Stripe Dashboard > Product catalog, create your
-   "Foursome Pro" product with a recurring price. Copy its Price ID
-   (starts with `price_`) into the `STRIPE_PRICE_ID` env var on Render.
-7. (Optional, Stripe) In Stripe Dashboard > Developers > Webhooks, click
+6. (Optional, Stripe) In Stripe Dashboard > Developers > Webhooks, click
    **Add endpoint**. Endpoint URL:
-   `https://your-render-url.onrender.com/api/stripe/webhook`. Select
-   events: `checkout.session.completed` and `customer.subscription.deleted`.
-   Copy the **Signing secret** (starts with `whsec_`) into the
+   `https://your-render-url.onrender.com/api/stripe/webhook`. Pick the
+   payment events paid events will need once they're built. Copy the
+   **Signing secret** (starts with `whsec_`) into the
    `STRIPE_WEBHOOK_SECRET` env var on Render.
-8. Redeploy (Render auto-restarts when you change env vars, but trigger a
+7. Redeploy (Render auto-restarts when you change env vars, but trigger a
    manual redeploy if it doesn't).
 
 ## Testing before real money
@@ -58,8 +53,8 @@ Expo/mobile).
 Stripe gives you test-mode API keys and test card numbers
 (4242 4242 4242 4242, any future date, any CVC) so you can run the whole
 flow without charging anyone real money. Use test keys everywhere until
-you've confirmed the webhook actually flips `is_pro` in the database, then
-switch to live keys.
+you've confirmed payments and the webhook work end to end, then switch to
+live keys.
 
 ## Known limitations, on purpose
 
