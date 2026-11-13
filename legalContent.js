@@ -1,4 +1,4 @@
-// Real Terms of Service / Privacy Policy / Cookie Policy / Refund Policy
+// Real Terms of Service / Privacy Policy / Refund Policy
 // content for server-rendered /terms, /privacy pages — kept in sync
 // wording-for-wording with public/index.html's inline copy and
 // foursome-mobile/src/legalContent.js (same convention already used
@@ -18,7 +18,7 @@ const TERMS_SECTIONS = [
   { h: 'The short version', p: ["Foursome helps golfers post open tee times and find groups to play with. Be honest in your profile, be respectful to other golfers, and use good judgment when meeting people in person — just like you would with any app that connects you with strangers. The rest of this page spells out the details."] },
   { h: 'Who can use Foursome', p: ["You must be at least 18 years old to create a Foursome account or use the app. By using Foursome, you're confirming that you meet this requirement and that the information in your profile is accurate."] },
   { h: 'Your account', p: ["You can use Foursome as a guest (a local profile stored only on your device, with no email or password) or with a full account (email and password, managed by our authentication provider, Supabase). Either way, you're responsible for the activity on your account and for keeping your login credentials private. If you're signed in on a device you share with others, remember to sign out when you're done."] },
-  { h: "What Foursome is — and isn't", p: ['Foursome is a place for golfers to post rounds they\'ve already booked and invite others to join, or to browse rounds other golfers have posted. We are not a booking service, and posting or joining a round through Foursome does not reserve a tee time at any course. The "Find a course" tab lets you search for courses and request the ones you\'d like to play — it does not book anything on your behalf.', 'Foursome is not affiliated with, endorsed by, or operated in partnership with any golf course, golf club, or booking platform. Course names and locations shown in the app come from OpenStreetMap, a public, community-run map — not from the courses themselves.'] },
+  { h: "What Foursome is — and isn't", p: ['Foursome is a place for golfers to post rounds they\'ve already booked and invite others to join, or to browse rounds other golfers have posted. We are not a booking service, and posting or joining a round through Foursome does not reserve a tee time at any course. The "Find a course" tab lets you search for golf courses — it does not book anything on your behalf.', 'Foursome is not affiliated with, endorsed by, or operated in partnership with any golf course, golf club, or booking platform. Course names and locations shown in the app come from OpenStreetMap, a public, community-run map — not from the courses themselves.'] },
   { h: 'Posting and joining rounds', p: ["When you post a round, the details you enter (course, date, time, number of spots, handicap range, pace, and any notes) are visible to other Foursome users. When someone requests to join your round, you decide whether to approve or deny them — Foursome doesn't guarantee that any request will be approved, or that a posted round will fill up. You're responsible for the accuracy of what you post, including making sure you've actually got a tee time to share."] },
   { h: 'Meeting people in person', p: ["Foursome connects you with other golfers, but the actual round happens off our platform, in person. We don't run background checks on users and can't guarantee the identity, behavior, or skill level of anyone you meet through the app. Use the same judgment you would with any app that connects you to strangers: consider meeting for the first time at the course itself, tell someone your plans, and trust your instincts. If something feels off, you can leave, block the other user, and report them to us."] },
   { h: 'Messaging and conduct', p: ["Chat within a round is only visible to that round's host and approved participants. When using Foursome — in chat, in your bio, in round notes, or anywhere else — don't:"], list: ['Harass, threaten, or discriminate against anyone', 'Post spam, scams, or unrelated advertising', 'Impersonate another person or misrepresent your handicap or identity', "Share anyone else's personal information without their consent", 'Use Foursome for anything illegal'] },
@@ -51,25 +51,10 @@ const PRIVACY_SECTIONS = [
   { h: 'Contact', p: ['Questions about your data or this policy? Email us at ' + ADMIN_EMAIL + '.'] },
 ];
 
-const COOKIE_SECTIONS = [
-  { h: 'The short version', p: ["Foursome's website doesn't use cookies, and neither the website nor the mobile app use any advertising or tracking cookies, pixels, or third-party analytics. We use a small amount of storage on your own device to keep the app working the way you'd expect — described below."] },
-  { h: "What we store on your device", list: [
-    "Your active profile/account id, so the app knows who you are between visits without you signing in every time.",
-    "The list of local guest profiles you've used on this device, so you can switch between them.",
-    "Your last shared location, so distance sorting keeps working across visits without asking again.",
-    "Whether you've turned push notifications on or off.",
-    "On the website only: a short-lived marker used only during the few seconds of a Google/Apple sign-in redirect, deleted immediately after it's used.",
-  ] },
-  { h: 'Staying signed in', p: ["If you create a full account, our authentication provider (Supabase) keeps you signed in using its own secure storage on your device. This is standard session storage, not an advertising cookie, and exists only so you don't have to log in every time you open Foursome."] },
-  { h: 'Your choices', p: ["None of this storage is optional in the sense of needing your permission to function — it's what makes core features (staying signed in, remembering your location preference, keeping notifications set the way you left them) work at all. You can clear it any time through your browser's or device's own settings, which will simply sign you out and reset those preferences locally; it won't delete your account or data from our servers."] },
-  { h: 'Changes to this policy', p: ["We may update this policy as Foursome changes. If we make a significant change, we'll do our best to let you know in the app."] },
-  { h: 'Contact', p: ['Questions about this policy? Email us at ' + ADMIN_EMAIL + '.'] },
-];
-
 const REFUND_SECTIONS = [
   { h: 'The short version', p: ["Foursome is free to use. Since there's nothing to buy, there's nothing to refund."] },
   { h: 'If that changes', p: ["If Foursome introduces paid events, we'll update this policy before charging anyone, so it accurately describes how refunds work for whatever's actually offered at that time."] },
   { h: 'Contact', p: ['Questions about this policy? Email us at ' + ADMIN_EMAIL + '.'] },
 ];
 
-module.exports = { LEGAL_EFFECTIVE_DATE, TERMS_EFFECTIVE_DATE, ADMIN_EMAIL, TERMS_SECTIONS, PRIVACY_SECTIONS, COOKIE_SECTIONS, REFUND_SECTIONS };
+module.exports = { LEGAL_EFFECTIVE_DATE, TERMS_EFFECTIVE_DATE, ADMIN_EMAIL, TERMS_SECTIONS, PRIVACY_SECTIONS, REFUND_SECTIONS };

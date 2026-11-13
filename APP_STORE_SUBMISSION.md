@@ -20,7 +20,7 @@ Find Golfers & Open Tee Times
 
 **Promotional text** (161 / 170 characters)
 ```
-Post your tee time and find golfers to join, or browse open rounds near you. Chat with your group, rate your round, and set your availability for others to find.
+Post your tee time and find golfers to join, or browse open rounds near you. Chat with your group and find golf courses nearby.
 ```
 
 **Description**
@@ -32,24 +32,14 @@ it — course, date, time, number of open spots, handicap range, and pace
 — and other golfers nearby can request to join. You decide who plays.
 
 Looking for a round to join? Browse open tee times posted by other
-golfers, filter by distance, pace, or skill level, and request a spot.
-
-FIND PLAYERS ON YOUR SCHEDULE
-Set your standing availability (weekday or weekend, morning, afternoon,
-or evening) so other golfers can find you even when you haven't posted a
-specific round.
+golfers, filter by distance, and request a spot.
 
 STAY IN TOUCH WITH YOUR GROUP
 Once you're confirmed for a round, chat with your host and the other
 approved players right in the app.
 
-RATE YOUR ROUNDS
-After playing, rate the people you played with and the course itself —
-ratings build up on profiles over time so you know who you're playing
-with.
-
 SAFETY FIRST
-Block or report anyone, any time. Foursome doesn't run background
+Block or report anyone, or report a single chat message, any time. Foursome doesn't run background
 checks on users — like any app that connects you with people you
 haven't met, use the same judgment you would anywhere else: consider
 meeting for the first time at the course, and tell someone your plans.
@@ -58,9 +48,8 @@ WHAT FOURSOME ISN'T
 Foursome is not a tee time booking service and isn't affiliated with any
 golf course or booking platform. Posting or joining a round doesn't
 reserve anything with the course — you're responsible for actually
-having a tee time to share. The "Find a course" tab lets you search for
-courses or see what's nearby, rate them, and request the ones you'd like
-to play; it doesn't book anything.
+having a tee time to share. The "Courses" tab lets you search for golf
+courses or see what's nearby; it doesn't book anything.
 
 Sign up with email, or jump in as a guest with no account at all.
 ```
@@ -146,7 +135,8 @@ HOW TO TEST
    request/approval flow already completed by the two seeded accounts.
 4. Tap into that round's chat. You'll see two existing messages between
    the host and this account — send a new message to confirm chat works
-   in both directions.
+   in both directions. To report a message, tap "Report" next to the
+   sender's name (or long-press the message) and pick a reason.
 5. To see the "Request to join" button itself (separate from the
    already-approved outcome in steps 2-4): back on Discover, tap
    "Request to join" on the "Marine Park Golf Course" round. It then
@@ -155,15 +145,13 @@ HOW TO TEST
    accounts only see each other's rounds, so this never sends a request
    to a real user.
 6. Other reviewable features from this same account: Profile tab (edit
-   profile, set standing availability, see past rounds), Settings
-   (Privacy Policy, Terms of Service, Cookie Policy, Refund Policy, Help
-   & FAQ, Contact Us, Delete Account — all reachable without needing to
+   profile, see past rounds), Settings (Privacy Policy, Terms of Service,
+   Help & FAQ, Contact Us, Blocked users, Delete Account — all reachable without needing to
    actually delete the test account).
-7. Google/Apple social sign-in buttons are intentionally hidden in this
-   build — email/password and guest mode are the supported sign-in
-   paths for this review.
+7. Sign-in is email/password or guest mode. There is no Google, Facebook
+   or other third-party sign-in.
 8. Location permission: tapping "Use my location" on the Discover or
-   Find a course tabs triggers the standard iOS "While Using the App"
+   Courses tabs triggers the standard iOS "While Using the App"
    prompt. Once allowed, the app checks location each time it's opened
    or brought back to the foreground — never in the background — to
    sort rounds by distance and find nearby courses. Coordinates are

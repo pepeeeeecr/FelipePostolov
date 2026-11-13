@@ -135,11 +135,12 @@ const state = {
   loading: true,
   filters: { pace: '', maxDistance: '', courseSearch: '', dateFilter: '', maxHandicapDiff: '' },
   discoverSearchFocused: false,
-  viewedThisSession: new Set(),
   myLocation: null,
   chatTeetimeId: null,
   chatCourseName: '',
   chatMessages: [],
+  chatReportMsg: null,     // {id, senderName, text} while the report sheet is open
+  chatReportBusy: false,
   chatPollInterval: null,
   editingProfile: false,
   editAvailability: null,  // draft array of tags while editing profile, null when not editing
@@ -154,19 +155,17 @@ const state = {
   authBusy: false,
   authError: '',
   showSettings: false,
-  settingsView: 'main',  // 'main' | 'changePassword' | 'help' | 'contact' | 'terms' | 'privacy' | 'cookies' | 'refund' | 'deleteConfirm'
+  settingsView: 'main',  // 'main' | 'changePassword' | 'help' | 'contact' | 'terms' | 'privacy' | 'refund' | 'deleteConfirm'
   settingsBusy: false,
   settingsError: '',
   bookSearch: '',
   bookSearchFocused: false,
   bookSelectedCourse: null,
-  bookRequestBusy: false,
   bookCourses: [],       // live results from OpenStreetMap for the current search/location context
   bookLoading: false,
   bookError: '',
   bookNearHome: null,    // {name, lat, lng} when showing courses around the home course (location off)
   bookSearchDebounceTimer: null,
-  myCourseRequests: [],  // [{id, courseName, preferredDate, preferredTime, createdAt}]
   viewingUserId: null,       // userId of the profile popover currently open, or null
   viewingUserProfile: null,  // loaded profile for viewingUserId (includes mutualRounds/blockedByMe)
   courseRatingData: null,       // {avgRating, ratingCount, ratings: [...]} for bookSelectedCourse, null while loading
@@ -174,7 +173,7 @@ const state = {
   courseRatingBusy: false
 };
 
-// Real Terms of Service / Privacy Policy / Cookie Policy / Refund Policy /
+// Real Terms of Service / Privacy Policy / Refund Policy /
 // Help content — kept in sync wording-for-wording with
 // foursome-mobile/src/legalContent.js, so both platforms show the same
 // policy. Each section is { h: heading, p: [paragraphs], list: [bullet
@@ -185,11 +184,17 @@ const state = {
 // policies ever change in a way that should prompt re-consent.
 const LEGAL_POLICY_VERSION = '2026-11-13';
 
-// Hides the Google/Apple buttons without deleting the OAuth code behind
-// them — neither provider is enabled on the Supabase project yet, and
-// Apple's sign-in flow isn't using their native API (a separate, bigger
-// change). Flip this back to true once both are properly set up.
-const SHOW_SOCIAL_LOGIN = false;
+// Features switched off for now. The code is still here — flip one to true
+// to bring it back. Mirrors src/features.js in the mobile app.
+const FEATURES = {
+  roundDateFilter: false,   // Discover: date filter
+  paceFilter: false,        // Discover: pace filter
+  skillFilter: false,       // Discover: handicap-gap filter
+  availablePlayers: false,  // Discover "Available players" + profile availability tags
+  playerRatings: false,     // rating players after a round
+  courseReviews: false,     // course ratings and reviews
+  refundPolicy: false,      // Settings > Refund Policy (back with paid events)
+};
 const LEGAL_EFFECTIVE_DATE = 'October 12, 2026';
 // The Terms changed after the other policies, so they carry their own date.
 const TERMS_EFFECTIVE_DATE = 'October 16, 2026';
@@ -212,7 +217,7 @@ const TERMS_SECTIONS = [
   { h: 'The short version', p: ["Foursome helps golfers post open tee times and find groups to play with. Be honest in your profile, be respectful to other golfers, and use good judgment when meeting people in person — just like you would with any app that connects you with strangers. The rest of this page spells out the details."] },
   { h: 'Who can use Foursome', p: ["You must be at least 18 years old to create a Foursome account or use the app. By using Foursome, you're confirming that you meet this requirement and that the information in your profile is accurate."] },
   { h: 'Your account', p: ["You can use Foursome as a guest (a local profile stored only on your device, with no email or password) or with a full account (email and password, managed by our authentication provider, Supabase). Either way, you're responsible for the activity on your account and for keeping your login credentials private. If you're signed in on a device you share with others, remember to sign out when you're done."] },
-  { h: "What Foursome is — and isn't", p: ['Foursome is a place for golfers to post rounds they\'ve already booked and invite others to join, or to browse rounds other golfers have posted. We are not a booking service, and posting or joining a round through Foursome does not reserve a tee time at any course. The "Find a course" tab lets you search for courses and request the ones you\'d like to play — it does not book anything on your behalf.', 'Foursome is not affiliated with, endorsed by, or operated in partnership with any golf course, golf club, or booking platform. Course names and locations shown in the app come from OpenStreetMap, a public, community-run map — not from the courses themselves.'] },
+  { h: "What Foursome is — and isn't", p: ['Foursome is a place for golfers to post rounds they\'ve already booked and invite others to join, or to browse rounds other golfers have posted. We are not a booking service, and posting or joining a round through Foursome does not reserve a tee time at any course. The "Find a course" tab lets you search for golf courses — it does not book anything on your behalf.', 'Foursome is not affiliated with, endorsed by, or operated in partnership with any golf course, golf club, or booking platform. Course names and locations shown in the app come from OpenStreetMap, a public, community-run map — not from the courses themselves.'] },
   { h: 'Posting and joining rounds', p: ["When you post a round, the details you enter (course, date, time, number of spots, handicap range, pace, and any notes) are visible to other Foursome users. When someone requests to join your round, you decide whether to approve or deny them — Foursome doesn't guarantee that any request will be approved, or that a posted round will fill up. You're responsible for the accuracy of what you post, including making sure you've actually got a tee time to share."] },
   { h: 'Meeting people in person', p: ["Foursome connects you with other golfers, but the actual round happens off our platform, in person. We don't run background checks on users and can't guarantee the identity, behavior, or skill level of anyone you meet through the app. Use the same judgment you would with any app that connects you to strangers: consider meeting for the first time at the course itself, tell someone your plans, and trust your instincts. If something feels off, you can leave, block the other user, and report them to us."] },
   { h: 'Messaging and conduct', p: ["Chat within a round is only visible to that round's host and approved participants. When using Foursome — in chat, in your bio, in round notes, or anywhere else — don't:"], list: ['Harass, threaten, or discriminate against anyone', 'Post spam, scams, or unrelated advertising', 'Impersonate another person or misrepresent your handicap or identity', "Share anyone else's personal information without their consent", 'Use Foursome for anything illegal'] },
@@ -245,21 +250,6 @@ const PRIVACY_SECTIONS = [
   { h: 'Contact', p: ['Questions about your data or this policy? Email us at foursomeapp.golf@gmail.com.'] },
 ];
 
-const COOKIE_SECTIONS = [
-  { h: 'The short version', p: ["Foursome's website doesn't use cookies, and neither the website nor the mobile app use any advertising or tracking cookies, pixels, or third-party analytics. We use a small amount of storage on your own device to keep the app working the way you'd expect — described below."] },
-  { h: "What we store on your device", list: [
-    "Your active profile/account id, so the app knows who you are between visits without you signing in every time.",
-    "The list of local guest profiles you've used on this device, so you can switch between them.",
-    "Your last shared location, so distance sorting keeps working across visits without asking again.",
-    "Whether you've turned push notifications on or off.",
-    "On the website only: a short-lived marker used only during the few seconds of a Google/Apple sign-in redirect, deleted immediately after it's used.",
-  ] },
-  { h: 'Staying signed in', p: ["If you create a full account, our authentication provider (Supabase) keeps you signed in using its own secure storage on your device. This is standard session storage, not an advertising cookie, and exists only so you don't have to log in every time you open Foursome."] },
-  { h: 'Your choices', p: ["None of this storage is optional in the sense of needing your permission to function — it's what makes core features (staying signed in, remembering your location preference, keeping notifications set the way you left them) work at all. You can clear it any time through your browser's or device's own settings, which will simply sign you out and reset those preferences locally; it won't delete your account or data from our servers."] },
-  { h: 'Changes to this policy', p: ["We may update this policy as Foursome changes. If we make a significant change, we'll do our best to let you know in the app."] },
-  { h: 'Contact', p: ['Questions about this policy? Email us at foursomeapp.golf@gmail.com.'] },
-];
-
 const REFUND_SECTIONS = [
   { h: 'The short version', p: ["Foursome is free to use. Since there's nothing to buy, there's nothing to refund."] },
   { h: 'If that changes', p: ["If Foursome introduces paid events, we'll update this policy before charging anyone, so it accurately describes how refunds work for whatever's actually offered at that time."] },
@@ -278,14 +268,12 @@ const HELP_SECTIONS = [
   { h: 'How do ratings work?', p: ["After playing a round together, you can rate the other person 1–5 stars. Ratings build up on a person's profile over time, so other golfers can see if someone's a reliable playing partner."] },
   { h: 'What does blocking someone do?', p: ["Blocking hides your rounds from that person (and theirs from you) in Discover, and stops either of you from requesting to join the other's rounds. You can block someone from their profile or from a round's participant list, and unblock them the same way later."] },
   { h: 'How do I report someone?', p: ["Open their profile and tap Report user, then briefly describe what happened. Reports go straight to us for review — they're separate from blocking, so you can report someone whether or not you've also blocked them."] },
-  { h: 'What is "Find a course"?', p: ["It's where you find golf courses. Search by name or see what's nearby, rate courses, and request the ones you'd like to play, optionally with a preferred date/time. It doesn't reserve an actual tee time at the course."] },
+  { h: 'What is "Find a course"?', p: ["It's where you find golf courses. Search by name or see what's nearby. It doesn't reserve an actual tee time at the course."] },
   { h: 'How do I delete my account?', p: ["Go to Settings > Delete account. This is permanent — it removes your profile, hosted rounds and their chat history, ratings, and (if you're signed in) your login."] },
   { h: 'Who do I contact if I need help?', p: ['Email foursomeapp.golf@gmail.com — see Contact us in Settings for a direct link.'] },
 ];
 
-// Supabase Auth — email/password for now. Adding Google/Apple later is just
-// another provider call here (sbAuth.auth.signInWithOAuth({ provider: 'google' })),
-// no changes needed anywhere else — the rest of the app only ever deals with
+// Supabase Auth — email/password. The rest of the app only ever deals with
 // "is there a session" and "what's the user id", not how it was obtained.
 const SUPABASE_URL = 'https://wdminyysudahxnfndwla.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_9VwvgZj5D_2qPvz1FUz3nQ_JpDawhp_'; // Dashboard > Project Settings > API — safe to expose client-side
@@ -460,7 +448,6 @@ function resetToWelcome(notice){
   state.profile = null;
   state.tab = 'discover';
   state.entryView = 'welcome';
-  state.myCourseRequests = [];
   state.bookSelectedCourse = null;
   state.bookCourses = [];
   state.bookError = '';
@@ -622,6 +609,27 @@ function closeChat(){
     state.chatPollInterval = null;
   }
   state.chatTeetimeId = null;
+  state.chatReportMsg = null;
+  render();
+}
+
+const CHAT_REPORT_REASONS = ['Harassment or hate', 'Spam or scam', 'Sexual or inappropriate', 'Something else'];
+
+// Reports one chat message. The server checks the reporter is in that round
+// and takes the sender from the message itself.
+async function reportChatMessage(reason){
+  const msg = state.chatReportMsg;
+  if(!msg || !reason) return;
+  state.chatReportBusy = true; render();
+  try{
+    await apiPost('/api/reports', { userId: state.myUserId, messageId: msg.id, reason });
+    state.chatReportMsg = null;
+    showToast('Report submitted — thank you');
+  }catch(e){
+    showToast(e.message || 'Could not submit report');
+    console.error(e);
+  }
+  state.chatReportBusy = false;
   render();
 }
 
@@ -655,27 +663,6 @@ async function init(){
 
     if(state.session){
       state.myUserId = state.session.user.id;
-
-      // Only present when we're back from a signInWithOAuthProvider()
-      // redirect (see there for why sessionStorage, not a JS variable) —
-      // absent entirely for a normal launch with an already-persisted
-      // session, which is what tells apart "just signed in with Google/
-      // Apple" from "returning user", since both land here with a session.
-      const pendingGuestId = sessionStorage.getItem(OAUTH_GUEST_ID_KEY);
-      if(pendingGuestId !== null){
-        sessionStorage.removeItem(OAUTH_GUEST_ID_KEY);
-        if(pendingGuestId !== '__NONE__' && pendingGuestId !== state.myUserId){
-          try{
-            const result = await migrateGuest(pendingGuestId);
-            showToast(result.migrated ? "You're signed in — your guest data was moved to your account" : "You're signed in");
-          }catch(e){
-            console.error('Guest migration failed', e);
-            showToast("You're signed in, but couldn't move your guest data over — try again from Profile");
-          }
-        } else {
-          showToast("You're signed in");
-        }
-      }
 
       try{
         state.profile = await apiGet('/api/profiles/' + state.myUserId);
@@ -743,7 +730,6 @@ async function continueAsGuest(){
     state.profile = await apiGet('/api/profiles/' + state.myUserId);
   }catch(e){ state.profile = null; }
   state.entryView = 'welcome';
-  state.myCourseRequests = [];
   state.bookSelectedCourse = null;
   state.bookCourses = [];
   state.bookError = '';
@@ -764,7 +750,6 @@ async function handleAuthSuccess(session, previousGuestId){
   state.authOverlay = null;
   state.authError = '';
   state.welcomeNotice = '';
-  state.myCourseRequests = [];
   state.bookSelectedCourse = null;
   state.bookCourses = [];
   state.bookError = '';
@@ -813,29 +798,6 @@ async function logInWithEmail(email, password, previousGuestId){
   await handleAuthSuccess(data.session, previousGuestId);
 }
 
-// Google/Apple sign-in — same signInWithOAuth call the client-side-first
-// architecture always intended (see authClient.js's comment on mobile).
-// The browser navigates away entirely for this, so unlike email/password
-// there's no session to hand to handleAuthSuccess() in this same function
-// call — the guest id that needs migrating has to survive that full page
-// reload. sessionStorage does that; '__NONE__' is a real sentinel (not just
-// an absent key) so init() can tell "OAuth just completed, no guest to
-// migrate" apart from "this isn't an OAuth return at all".
-const OAUTH_GUEST_ID_KEY = 'foursome_oauth_guest_id';
-
-async function signInWithOAuthProvider(provider){
-  sessionStorage.setItem(OAUTH_GUEST_ID_KEY, state.myUserId || '__NONE__');
-  const { error } = await sbAuth.auth.signInWithOAuth({
-    provider, options: { redirectTo: window.location.origin }
-  });
-  if(error){
-    sessionStorage.removeItem(OAUTH_GUEST_ID_KEY);
-    showToast('Could not start sign-in — try again');
-    console.error(error);
-  }
-  // No further code runs here on success — the page navigates away.
-}
-
 async function signOut(){
   await sbAuth.auth.signOut();
   state.session = null;
@@ -844,7 +806,6 @@ async function signOut(){
   state.entryView = 'welcome';
   state.authOverlay = null;
   state.tab = 'discover';
-  state.myCourseRequests = [];
   state.bookSelectedCourse = null;
   state.bookCourses = [];
   state.bookError = '';
@@ -953,6 +914,7 @@ async function unblockUser(userId){
 }
 
 async function loadAvailablePlayers(){
+  if(!FEATURES.availablePlayers) return;
   try{
     const data = await apiGet('/api/availability');
     state.availablePlayers = (data.users || []).filter(u => u.id !== state.myUserId);
@@ -1142,14 +1104,6 @@ async function disableNotifications(){
   render();
 }
 
-async function recordView(teetimeId){
-  if(state.viewedThisSession.has(teetimeId)) return;
-  state.viewedThisSession.add(teetimeId);
-  try{
-    await apiPost('/api/teetimes/' + teetimeId + '/view', { userId: state.myUserId });
-  }catch(e){ /* non-critical */ }
-}
-
 async function changePassword(newPassword, confirmPassword){
   if(!newPassword || newPassword.length < 6){
     state.settingsError = 'Password must be at least 6 characters';
@@ -1190,7 +1144,6 @@ function clearAllLocalIdentityState(){
   state.editingProfile = false;
   state.tab = 'discover';
   state.entryView = 'welcome';
-  state.myCourseRequests = [];
   state.bookSelectedCourse = null;
   state.bookCourses = [];
   state.bookError = '';
@@ -1227,8 +1180,7 @@ function renderSettingsOverlay(){
   else if(state.settingsView === 'contact') body = renderSettingsContact();
   else if(state.settingsView === 'terms') body = renderSettingsDoc('Terms of Service', TERMS_SECTIONS, TERMS_EFFECTIVE_DATE);
   else if(state.settingsView === 'privacy') body = renderSettingsDoc('Privacy Policy', PRIVACY_SECTIONS, LEGAL_EFFECTIVE_DATE);
-  else if(state.settingsView === 'cookies') body = renderSettingsDoc('Cookie Policy', COOKIE_SECTIONS, LEGAL_EFFECTIVE_DATE);
-  else if(state.settingsView === 'refund') body = renderSettingsDoc('Refund Policy', REFUND_SECTIONS, LEGAL_EFFECTIVE_DATE);
+  else if(state.settingsView === 'refund' && FEATURES.refundPolicy) body = renderSettingsDoc('Refund Policy', REFUND_SECTIONS, LEGAL_EFFECTIVE_DATE);
   else if(state.settingsView === 'blocked') body = renderSettingsBlocked();
   else body = renderSettingsMain();
 
@@ -1280,8 +1232,7 @@ function renderSettingsMain(){
       <div class="settings-row" data-settings-nav="contact"><span>Contact us</span><span>›</span></div>
       <div class="settings-row" data-settings-nav="terms"><span>Terms of Service</span><span>›</span></div>
       <div class="settings-row" data-settings-nav="privacy"><span>Privacy Policy</span><span>›</span></div>
-      <div class="settings-row" data-settings-nav="cookies"><span>Cookie Policy</span><span>›</span></div>
-      <div class="settings-row" data-settings-nav="refund"><span>Refund Policy</span><span>›</span></div>
+      ${FEATURES.refundPolicy ? '<div class="settings-row" data-settings-nav="refund"><span>Refund Policy</span><span>›</span></div>' : ''}
     </div>
 
     <div class="settings-group-label">DANGER ZONE</div>
@@ -1557,7 +1508,7 @@ function renderImpl(){
         <div class="navitem ${state.tab==='discover'?'active':''}" data-tab="discover">Discover</div>
         <div class="navitem ${state.tab==='post'?'active':''}" data-tab="post">Post Round</div>
         <div class="navitem ${state.tab==='myrounds'?'active':''}" data-tab="myrounds">My Rounds</div>
-        <div class="navitem ${state.tab==='book'?'active':''}" data-tab="book">Book</div>
+        <div class="navitem ${state.tab==='book'?'active':''}" data-tab="book">Courses</div>
         <div class="navitem ${state.tab==='profile'?'active':''}" data-tab="profile">Profile</div>
       </div>
     </div>
@@ -1584,7 +1535,6 @@ function renderImpl(){
     el.addEventListener('click', async () => {
       state.tab = el.dataset.tab;
       if(state.tab === 'book'){
-        await loadMyCourseRequests();
         await refreshBookCourses();
       }
       if(state.tab === 'discover'){
@@ -1614,9 +1564,10 @@ function renderChatOverlay(){
       <div id="chat-messages" style="flex:1; overflow-y:auto; padding:14px 18px;">
         ${state.chatMessages.length === 0 ? '<div class="empty">No messages yet. Say hi 👋</div>' : state.chatMessages.map(m => {
           const isMe = m.senderId === state.myUserId;
+          const canReport = !isMe && m.id != null;
           return `
             <div style="margin-bottom:10px; display:flex; flex-direction:column; align-items:${isMe ? 'flex-end' : 'flex-start'};">
-              ${!isMe ? `<div style="font-size:11px; opacity:0.68; margin-bottom:2px;">${escapeHtml(m.senderName)}</div>` : ''}
+              ${!isMe ? `<div style="font-size:11px; margin-bottom:2px;"><span style="opacity:0.68;">${escapeHtml(m.senderName)}</span>${canReport ? ` <span data-report-msg="${m.id}" role="button" tabindex="0" aria-label="Report message from ${escapeHtml(m.senderName)}" style="opacity:0.55; text-decoration:underline; cursor:pointer; margin-left:6px;">Report</span>` : ''}</div>` : ''}
               <div style="max-width:75%; padding:9px 13px; border-radius:14px; background:${isMe ? 'var(--fairway)' : '#fff'}; color:${isMe ? '#fff' : 'var(--ink)'}; border:${isMe ? 'none' : '1px solid var(--line)'}; font-size:13.5px; word-wrap:break-word;">${escapeHtml(m.text)}</div>
             </div>
           `;
@@ -1626,6 +1577,19 @@ function renderChatOverlay(){
         <input id="chat-input" placeholder="Message..." aria-label="Message" style="flex:1; margin:0;" />
         <button id="chat-send" class="btn btn-primary" style="flex:none; padding:10px 18px;">Send</button>
       </div>
+      ${state.chatReportMsg ? `
+        <div style="position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:80; display:flex; align-items:flex-end; justify-content:center;">
+          <div role="dialog" aria-label="Report this message" style="background:#fff; width:100%; max-width:520px; border-radius:16px 16px 0 0; padding:18px 18px max(16px, env(safe-area-inset-bottom));">
+            <div style="font-weight:700; font-size:15px;">Report this message?</div>
+            <div style="font-size:13px; opacity:0.8; margin-top:6px; word-wrap:break-word;">${escapeHtml(state.chatReportMsg.senderName)}: "${escapeHtml(state.chatReportMsg.text)}"</div>
+            <div style="font-size:11.5px; opacity:0.68; margin:6px 0 8px;">We'll review it. ${escapeHtml(state.chatReportMsg.senderName)} won't know who reported it.</div>
+            ${CHAT_REPORT_REASONS.map(r => `
+              <div data-report-reason="${escapeHtml(r)}" role="button" tabindex="0" style="padding:13px 0; border-top:1px solid var(--line); cursor:pointer; font-size:14px; ${state.chatReportBusy ? 'pointer-events:none; opacity:0.5;' : ''}">${escapeHtml(r)}</div>
+            `).join('')}
+            <div id="chat-report-cancel" role="button" tabindex="0" style="padding:13px 0; border-top:1px solid var(--line); cursor:pointer; text-align:center; font-size:14px; opacity:0.68;">${state.chatReportBusy ? 'Sending…' : 'Cancel'}</div>
+          </div>
+        </div>
+      ` : ''}
     </div>
   `;
 }
@@ -1637,7 +1601,24 @@ function attachChatHandlers(){
   if(sendBtn) sendBtn.addEventListener('click', sendChatMessage);
   const input = document.getElementById('chat-input');
   if(input) input.addEventListener('keydown', e => { if(e.key === 'Enter') sendChatMessage(); });
-  scrollChatToBottom();
+  document.querySelectorAll('[data-report-msg]').forEach(el => {
+    el.addEventListener('click', () => {
+      const m = state.chatMessages.find(x => String(x.id) === el.dataset.reportMsg);
+      if(!m) return;
+      state.chatReportMsg = { id: m.id, senderName: m.senderName, text: m.text };
+      render();
+    });
+  });
+  document.querySelectorAll('[data-report-reason]').forEach(el => {
+    el.addEventListener('click', () => reportChatMessage(el.dataset.reportReason));
+  });
+  const reportCancel = document.getElementById('chat-report-cancel');
+  if(reportCancel) reportCancel.addEventListener('click', () => {
+    if(state.chatReportBusy) return;
+    state.chatReportMsg = null;
+    render();
+  });
+  if(!state.chatReportMsg) scrollChatToBottom();
 }
 
 // Shared by the pre-profile welcome gate and the in-app "create an
@@ -1657,15 +1638,6 @@ function authFormFieldsHtml(mode, idPrefix){
       <button class="btn btn-primary" id="${idPrefix}-submit" style="width:100%;" ${state.authBusy ? 'disabled' : ''}>${state.authBusy ? 'Please wait…' : heading}</button>
     </div>
     <div class="reset-link" id="${idPrefix}-switch">${switchLabel}</div>
-    ${SHOW_SOCIAL_LOGIN ? `
-      <div style="display:flex; align-items:center; gap:10px; margin:18px 0;">
-        <div style="flex:1; height:1px; background:var(--line);"></div>
-        <span style="font-size:11px; opacity:0.68;">OR</span>
-        <div style="flex:1; height:1px; background:var(--line);"></div>
-      </div>
-      <button class="btn btn-ghost" data-oauth-provider="google" style="width:100%; margin-bottom:10px;" ${state.authBusy ? 'disabled' : ''}>Continue with Google</button>
-      <button class="btn btn-ghost" data-oauth-provider="apple" style="width:100%;" ${state.authBusy ? 'disabled' : ''}>Continue with Apple</button>
-    ` : ''}
   `;
 }
 
@@ -1704,10 +1676,6 @@ function attachAuthFormHandlers(mode, opts){
     const backLink = document.getElementById('entry-auth-back');
     if(backLink) backLink.addEventListener('click', () => { state.entryView = 'welcome'; state.authError = ''; render(); });
   }
-
-  document.querySelectorAll('[data-oauth-provider]').forEach(btn => {
-    btn.addEventListener('click', () => signInWithOAuthProvider(btn.dataset.oauthProvider));
-  });
 }
 
 // title/sections for each doc reachable from the consent-checkbox links,
@@ -1851,7 +1819,7 @@ function renderUserProfileOverlay(){
       <div class="meta">Home course: ${escapeHtml(prof.homeCourse || '—')}</div>
       <div class="pill-row">
         <span class="pill">${escapeHtml(String(prof.handicap))} handicap</span>
-        ${prof.ratingCount > 0 ? `<span class="pill">★${prof.avgRating} (${prof.ratingCount})</span>` : `<span class="pill" style="opacity:0.68;">No ratings yet</span>`}
+        ${prof.ratingCount > 0 ? `<span class="pill">★${prof.avgRating} (${prof.ratingCount})</span>` : ''}
         ${prof.mutualRounds != null ? `<span class="pill">${prof.mutualRounds} mutual round${prof.mutualRounds===1?'':'s'}</span>` : ''}
       </div>
     </div>
@@ -1928,10 +1896,10 @@ function renderDiscover(){
     const term = state.filters.courseSearch.toLowerCase();
     open = open.filter(t => t.course.toLowerCase().includes(term));
   }
-  if(state.filters.dateFilter){
+  if(FEATURES.roundDateFilter && state.filters.dateFilter){
     open = open.filter(t => t.date === state.filters.dateFilter);
   }
-  if(state.filters.pace){
+  if(FEATURES.paceFilter && state.filters.pace){
     open = open.filter(t => t.pace === state.filters.pace);
   }
   if(state.filters.maxDistance && state.myLocation){
@@ -1941,7 +1909,7 @@ function renderDiscover(){
       return distanceMiles(state.myLocation.lat, state.myLocation.lng, t.lat, t.lng) <= maxMiles;
     });
   }
-  if(state.filters.maxHandicapDiff && state.profile && state.profile.handicap != null){
+  if(FEATURES.skillFilter && state.filters.maxHandicapDiff && state.profile && state.profile.handicap != null){
     const maxDiff = parseFloat(state.filters.maxHandicapDiff);
     open = open.filter(t => t.hostHandicap == null || Math.abs(t.hostHandicap - state.profile.handicap) <= maxDiff);
   }
@@ -1959,9 +1927,11 @@ function renderDiscover(){
     <div class="card" style="padding:10px 14px;">
       <label style="margin:0 0 5px;">Search by course</label>
       <input id="filter-course-search" placeholder="e.g. Trenton" value="${escapeHtml(state.filters.courseSearch)}" />
-      <label style="margin-top:10px;">Date</label>
-      <input id="filter-date" type="date" value="${escapeHtml(state.filters.dateFilter)}" />
-      ${(state.filters.courseSearch || state.filters.dateFilter) ? `<div class="reset-link" id="clear-search-filters" style="margin-top:8px;">Clear search filters</div>` : ''}
+      ${FEATURES.roundDateFilter ? `
+        <label style="margin-top:10px;">Date</label>
+        <input id="filter-date" type="date" value="${escapeHtml(state.filters.dateFilter)}" />
+      ` : ''}
+      ${(state.filters.courseSearch || (FEATURES.roundDateFilter && state.filters.dateFilter)) ? `<div class="reset-link" id="clear-search-filters" style="margin-top:8px;">Clear search filters</div>` : ''}
     </div>
   `;
 
@@ -1972,8 +1942,12 @@ function renderDiscover(){
     </div>
   ` : '';
 
-  const filterBar = `
+  const showPace = FEATURES.paceFilter;
+  const showDistance = !!state.myLocation;
+  const showSkill = FEATURES.skillFilter && state.profile && state.profile.handicap != null;
+  const filterBar = (showPace || showDistance || showSkill) ? `
     <div class="card" style="padding:10px 14px;">
+      ${showPace ? `
       <label style="margin:0 0 5px;">Pace preference</label>
       <select id="filter-pace">
         <option value="">Any pace</option>
@@ -1981,8 +1955,9 @@ function renderDiscover(){
         <option value="Competitive" ${state.filters.pace==='Competitive'?'selected':''}>Competitive</option>
         <option value="Either" ${state.filters.pace==='Either'?'selected':''}>Either</option>
       </select>
-      ${state.myLocation ? `
-        <label style="margin-top:10px;">Max distance</label>
+      ` : ''}
+      ${showDistance ? `
+        <label style="margin-top:${showPace ? '10px' : '0'};">Max distance</label>
         <select id="filter-distance">
           <option value="">Any distance</option>
           <option value="5" ${state.filters.maxDistance==='5'?'selected':''}>Within 5 mi</option>
@@ -1991,7 +1966,7 @@ function renderDiscover(){
           <option value="50" ${state.filters.maxDistance==='50'?'selected':''}>Within 50 mi</option>
         </select>
       ` : ''}
-      ${state.profile && state.profile.handicap != null ? `
+      ${showSkill ? `
         <label style="margin-top:10px;">Skill level (your handicap: ${escapeHtml(String(state.profile.handicap))})</label>
         <select id="filter-handicap">
           <option value="">Any skill level</option>
@@ -2001,15 +1976,16 @@ function renderDiscover(){
         </select>
       ` : ''}
     </div>
-  `;
+  ` : '';
 
   // Standing availability — separate from one-off posted rounds below. Just
   // a "here's who's generally free" signal; tapping a card opens the same
   // profile popover used everywhere else (mutual rounds, block, report).
-  const availablePlayersHtml = state.availablePlayers.length > 0 ? `
+  const players = FEATURES.availablePlayers ? state.availablePlayers : [];
+  const availablePlayersHtml = players.length > 0 ? `
     <div style="font-size:12px; font-weight:700; opacity:0.68; margin:14px 0 8px;">AVAILABLE PLAYERS</div>
     <div class="card" style="padding:6px 14px;">
-      ${state.availablePlayers.map(u => `
+      ${players.map(u => `
         <div class="request-row" style="flex-wrap:wrap; cursor:pointer;" data-view-user="${u.id}">
           <span>${escapeHtml(u.name)}${u.handicap != null ? ` · ${escapeHtml(String(u.handicap))} HCP` : ''}</span>
           <span style="width:100%; font-size:11px; opacity:0.68; margin-top:2px;">${u.availability.map(availabilityLabel).map(escapeHtml).join(', ')}</span>
@@ -2029,7 +2005,7 @@ function renderDiscover(){
     ${locationBanner}
     ${filterBar}
     ${availablePlayersHtml}
-    ${state.availablePlayers.length > 0 ? '<div style="font-size:12px; font-weight:700; opacity:0.68; margin:14px 0 8px;">OPEN ROUNDS</div>' : ''}
+    ${players.length > 0 ? '<div style="font-size:12px; font-weight:700; opacity:0.68; margin:14px 0 8px;">OPEN ROUNDS</div>' : ''}
     ${open.map(t => {
       const myReq = t.requests.find(r => r.userId === state.myUserId);
       let actionHtml;
@@ -2049,7 +2025,7 @@ function renderDiscover(){
         ? ` · ★${t.hostAvgRating} (${t.hostRatingCount})`
         : '';
       return `
-        <div class="card" data-view="${t.id}">
+        <div class="card">
           <div class="card-top">
             <div class="course-name">${escapeHtml(t.course)}</div>
             <div class="hcp">${escapeHtml(t.hcpRange || 'Any HCP')}</div>
@@ -2112,10 +2088,6 @@ function attachDiscoverHandlers(){
   if(locationBtn){
     locationBtn.addEventListener('click', requestLocation);
   }
-  const viewTargets = document.querySelectorAll('[data-view]');
-  (async () => {
-    for(const el of viewTargets){ await recordView(el.dataset.view); }
-  })();
 }
 
 function renderPost(){
@@ -2181,8 +2153,6 @@ function renderMyRounds(){
     html += "<div class=\"empty\" style=\"padding:20px 10px;\">You haven't posted a round yet.</div>";
   } else {
     html += hosted.map(t => {
-      const viewerCount = (t.viewedBy || []).length;
-      const viewerLine = `<div class="meta">${viewerCount} golfer${viewerCount===1?'':'s'} viewed this round</div>`;
       return `
       <div class="card">
         <div class="card-top">
@@ -2190,7 +2160,6 @@ function renderMyRounds(){
           <div class="hcp">${t.openSpots}/${t.totalSpots} open</div>
         </div>
         <div class="meta">${escapeHtml(t.date)} · ${escapeHtml(t.time)}</div>
-        ${viewerLine}
         <div class="row">
           <button class="btn btn-ghost" style="padding:7px 10px; font-size:12px;" data-chat-open="${t.id}">Chat</button>
           <button class="btn btn-deny" style="padding:7px 10px; font-size:12px;" data-cancel="${t.id}">Cancel round</button>
@@ -2216,7 +2185,7 @@ function renderMyRounds(){
                 `<span class="status-tag status-${r.status}">${r.status}</span>`
               }
               ${playedTogetherLine}
-              ${r.status === 'approved' ? `<div style="width:100%;">${starPickerHtml(t.id, r.userId, myRatingOfThem ? myRatingOfThem.rating : null)}</div>` : ''}
+              ${FEATURES.playerRatings && r.status === 'approved' ? `<div style="width:100%;">${starPickerHtml(t.id, r.userId, myRatingOfThem ? myRatingOfThem.rating : null)}</div>` : ''}
             </div>
           `;}).join('')
         }
@@ -2240,7 +2209,7 @@ function renderMyRounds(){
           <div class="meta">${escapeHtml(t.date)} · ${escapeHtml(t.time)} · hosted by <span data-view-user="${t.hostId}" style="text-decoration:underline; cursor:pointer;">${escapeHtml(t.hostName)}</span></div>
           ${myReq.status === 'pending' ? `<div class="row"><button class="btn btn-deny" style="padding:7px 10px; font-size:12px;" data-withdraw="${t.id}">Withdraw request</button></div>` : ''}
           ${myReq.status === 'approved' ? `<div class="row"><button class="btn btn-ghost" style="padding:7px 10px; font-size:12px;" data-chat-open="${t.id}">Chat</button></div>` : ''}
-          ${myReq.status === 'approved' ? starPickerHtml(t.id, t.hostId, myRatingOfHost ? myRatingOfHost.rating : null) : ''}
+          ${FEATURES.playerRatings && myReq.status === 'approved' ? starPickerHtml(t.id, t.hostId, myRatingOfHost ? myRatingOfHost.rating : null) : ''}
         </div>
       `;
     }).join('');
@@ -2278,54 +2247,6 @@ function attachMyRoundsHandlers(){
   document.querySelectorAll('[data-withdraw]').forEach(btn => {
     btn.addEventListener('click', () => withdrawRequest(btn.dataset.withdraw));
   });
-}
-
-// --- Book a Tee Time (course request / waitlist) --------------------------
-async function loadMyCourseRequests(){
-  try{
-    const data = await apiGet('/api/course-requests/mine');
-    state.myCourseRequests = data.requests || [];
-  }catch(e){
-    console.error('Failed to load course requests', e);
-  }
-}
-
-async function requestCourse(){
-  const course = state.bookSelectedCourse;
-  if(!course) return;
-  const dateInput = document.getElementById('book-date');
-  const timeInput = document.getElementById('book-time');
-  const preferredDate = dateInput ? dateInput.value : '';
-  const preferredTime = timeInput ? timeInput.value : '';
-  state.bookRequestBusy = true; render();
-  try{
-    const result = await apiPost('/api/course-requests', {
-      userId: state.myUserId, courseName: course,
-      preferredDate: preferredDate || null, preferredTime: preferredTime || null
-    });
-    if(result.request) state.myCourseRequests.unshift(result.request);
-    state.bookRequestBusy = false;
-    state.bookSelectedCourse = null;
-    showToast("Thanks — we'll let you know if this course gets added!");
-    render();
-  }catch(e){
-    state.bookRequestBusy = false;
-    showToast('Could not send your request — try again');
-    console.error(e);
-    render();
-  }
-}
-
-async function cancelCourseRequest(id){
-  try{
-    await apiDelete('/api/course-requests/' + id, { userId: state.myUserId });
-    state.myCourseRequests = state.myCourseRequests.filter(r => String(r.id) !== String(id));
-    showToast('Request cancelled');
-    render();
-  }catch(e){
-    showToast('Could not cancel — try again');
-    console.error(e);
-  }
 }
 
 // Live course search against our backend, which itself queries OpenStreetMap
@@ -2451,7 +2372,9 @@ async function refreshBookCourses(){
 }
 
 function renderBook(){
-  if(state.bookSelectedCourse) return renderBookCourseDetail(state.bookSelectedCourse);
+  // The course page only holds ratings and reviews, so it's reachable only
+  // while those are switched on.
+  if(FEATURES.courseReviews && state.bookSelectedCourse) return renderBookCourseDetail(state.bookSelectedCourse);
 
   const term = state.bookSearch.trim();
   let courses = state.bookCourses;
@@ -2462,22 +2385,6 @@ function renderBook(){
       distanceMiles(sortFrom.lat, sortFrom.lng, b.lat, b.lng)
     );
   }
-  const requestedCourseNames = state.myCourseRequests.map(r => r.courseName);
-
-  const myRequestsSection = state.myCourseRequests.length > 0 ? `
-    <div style="font-size:12px; font-weight:700; opacity:0.68; margin-bottom:8px;">YOUR REQUESTS</div>
-    ${state.myCourseRequests.map(r => `
-      <div class="card">
-        <div class="card-top">
-          <div class="course-name">${escapeHtml(r.courseName)}</div>
-          <button class="btn btn-deny" style="flex:none; padding:5px 10px; font-size:11px;" data-cancel-request="${r.id}">Cancel</button>
-        </div>
-        <div class="meta">${r.preferredDate ? escapeHtml(r.preferredDate) : 'Any date'} · ${r.preferredTime ? escapeHtml(r.preferredTime) : 'Any time'}</div>
-      </div>
-    `).join('')}
-    <div style="font-size:12px; font-weight:700; opacity:0.68; margin:18px 0 8px;">FIND A COURSE</div>
-  ` : '';
-
   let body;
   if(state.bookLoading){
     body = '<div class="loading">Searching courses…</div>';
@@ -2502,7 +2409,6 @@ function renderBook(){
       </div>
     ` : '';
     body = nearHomeBanner + courses.map(c => {
-      const already = requestedCourseNames.includes(c.name);
       const miles = c.distanceMiles != null ? c.distanceMiles
         : state.myLocation ? distanceMiles(state.myLocation.lat, state.myLocation.lng, c.lat, c.lng) : null;
       const distanceLine = (state.myLocation && miles != null)
@@ -2510,12 +2416,12 @@ function renderBook(){
         : (!term && state.bookNearHome && miles != null)
           ? `<div class="meta">${miles.toFixed(1)} mi from ${escapeHtml(state.bookNearHome.name)}</div>`
           : '';
-      const ratingLine = c.ratingCount > 0 ? `<div class="meta">★${c.avgRating} (${c.ratingCount} rating${c.ratingCount===1?'':'s'})</div>` : '';
+      const ratingLine = FEATURES.courseReviews && c.ratingCount > 0 ? `<div class="meta">★${c.avgRating} (${c.ratingCount} rating${c.ratingCount===1?'':'s'})</div>` : '';
       return `
-        <div class="card" data-select-course="${escapeHtml(c.name)}" style="cursor:pointer;">
+        <div class="card" ${FEATURES.courseReviews ? `data-select-course="${escapeHtml(c.name)}" style="cursor:pointer;"` : ''}>
           <div style="display:flex; justify-content:space-between; align-items:center;">
             <span class="course-name">${escapeHtml(c.name)}</span>
-            ${already ? '<span class="pill" style="border-color:var(--turf); color:var(--turf); font-weight:700;">Requested</span>' : '<span style="opacity:0.68;">›</span>'}
+            ${FEATURES.courseReviews ? '<span style="opacity:0.68;">›</span>' : ''}
           </div>
           ${ratingLine}
           ${distanceLine}
@@ -2527,7 +2433,6 @@ function renderBook(){
   return `
     <h1 class="screen-title">Find a course</h1>
     <div class="meta" style="margin:-8px 0 14px;">Search for a course or see what's nearby.</div>
-    ${myRequestsSection}
     <input id="book-search" placeholder="Search courses by name..." aria-label="Search courses by name" value="${escapeHtml(state.bookSearch)}" style="margin-bottom:12px;" />
     ${body}
   `;
@@ -2573,16 +2478,6 @@ function renderBookCourseDetail(course){
       </div>
     </div>
     ${reviewsHtml}
-    <div class="card">
-      <div class="notes" style="margin-top:0;">Want to play here? Request this course and tell us when you'd like to go.</div>
-      <label>Preferred date (optional)</label>
-      <input id="book-date" type="date" />
-      <label>Preferred time (optional)</label>
-      <input id="book-time" type="time" />
-      <div class="form-actions">
-        <button class="btn btn-primary" id="book-request-btn" style="width:100%;" ${state.bookRequestBusy ? 'disabled' : ''}>${state.bookRequestBusy ? 'Sending…' : 'Request this course'}</button>
-      </div>
-    </div>
   `;
 }
 
@@ -2624,7 +2519,7 @@ async function submitCourseRating(){
 }
 
 function attachBookHandlers(){
-  if(state.bookSelectedCourse){
+  if(FEATURES.courseReviews && state.bookSelectedCourse){
     const backBtn = document.getElementById('book-back');
     if(backBtn) backBtn.addEventListener('click', () => {
       state.bookSelectedCourse = null;
@@ -2632,8 +2527,6 @@ function attachBookHandlers(){
       state.courseRatingDraftStars = 0;
       render();
     });
-    const requestBtn = document.getElementById('book-request-btn');
-    if(requestBtn) requestBtn.addEventListener('click', requestCourse);
     document.querySelectorAll('.course-star-pick').forEach(el => {
       el.addEventListener('click', () => { state.courseRatingDraftStars = parseInt(el.dataset.star); render(); });
     });
@@ -2663,12 +2556,6 @@ function attachBookHandlers(){
   });
   const locationBtn = document.getElementById('book-use-location-btn');
   if(locationBtn) locationBtn.addEventListener('click', requestLocation);
-  document.querySelectorAll('[data-cancel-request]').forEach(el => {
-    el.addEventListener('click', (e) => {
-      e.stopPropagation();
-      cancelCourseRequest(el.dataset.cancelRequest);
-    });
-  });
 }
 
 function renderProfile(){
@@ -2686,12 +2573,14 @@ function renderProfile(){
       <input id="ep-hcp" type="number" step="0.1" value="${escapeHtml(String(p.handicap))}" />
       <label>Short bio (optional)</label>
       <textarea id="ep-bio" placeholder="e.g. Relaxed pace, always up for a rain check">${escapeHtml(p.bio || '')}</textarea>
+      ${FEATURES.availablePlayers ? `
       <label>General availability (optional — shown to others browsing Discover)</label>
       <div class="pill-row">
         ${AVAILABILITY_OPTIONS.map(opt => `
           <span class="pill availability-toggle" data-availability-tag="${opt.value}" role="button" tabindex="0" aria-pressed="${draft.includes(opt.value) ? 'true' : 'false'}" style="cursor:pointer; ${draft.includes(opt.value) ? 'background:var(--fairway); color:#fff; border-color:var(--fairway);' : ''}">${opt.label}</span>
         `).join('')}
       </div>
+      ` : ''}
       <div class="form-actions">
         <button class="btn btn-primary" id="ep-save" style="width:100%;">Save changes</button>
       </div>
@@ -2713,10 +2602,10 @@ function renderProfile(){
       ${p.bio ? `<div class="notes">${escapeHtml(p.bio)}</div>` : ''}
       <div class="pill-row">
         <span class="pill">${escapeHtml(String(p.handicap))} handicap</span>
-        ${p.ratingCount > 0 ? `<span class="pill">★${p.avgRating} (${p.ratingCount} rating${p.ratingCount===1?'':'s'})</span>` : `<span class="pill" style="opacity:0.68;">No ratings yet</span>`}
+        ${p.ratingCount > 0 ? `<span class="pill">★${p.avgRating} (${p.ratingCount} rating${p.ratingCount===1?'':'s'})</span>` : ''}
         <span class="pill">${roundsPlayedCount} round${roundsPlayedCount===1?'':'s'} played</span>
       </div>
-      ${(p.availability && p.availability.length > 0) ? `
+      ${(FEATURES.availablePlayers && p.availability && p.availability.length > 0) ? `
         <div class="meta" style="margin-top:8px;">Generally available: ${p.availability.map(availabilityLabel).map(escapeHtml).join(', ')}</div>
       ` : ''}
     </div>

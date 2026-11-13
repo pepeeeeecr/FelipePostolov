@@ -74,7 +74,6 @@ function teetimeRowToJson(row) {
     notes: row.notes,
     status: row.status || 'active',
     requests: row.requests || [],
-    viewedBy: row.viewed_by || [],
     createdAt: row.created_at
   };
 }
@@ -166,7 +165,6 @@ async function buildTeetimeResponse(row, viewerId, blockedIds) {
   } else {
     json.requests = viewerId ? json.requests.filter(r => r.userId === viewerId) : [];
     json.ratings = viewerId ? json.ratings.filter(r => r.raterId === viewerId || r.rateeId === viewerId) : [];
-    json.viewedBy = [];
   }
   return json;
 }
@@ -271,7 +269,7 @@ if (RESEND_API_KEY) {
   console.warn('notifyAdminOfReport: RESEND_API_KEY not set at boot — report emails disabled until it is configured.');
 }
 
-async function notifyAdminOfReport(reporterId, reportedId, reason) {
+async function notifyAdminOfReport(reporterId, reportedId, reason, message = null) {
   if (!RESEND_API_KEY) {
     console.warn('notifyAdminOfReport: skipped — RESEND_API_KEY not set.');
     return;
@@ -284,13 +282,17 @@ async function notifyAdminOfReport(reporterId, reportedId, reason) {
       body: JSON.stringify({
         from: 'Foursome Reports <onboarding@resend.dev>',
         to: [legal.ADMIN_EMAIL],
-        subject: 'New Foursome user report',
+        subject: message ? 'New Foursome message report' : 'New Foursome user report',
         text: [
-          'A user was reported in Foursome.',
+          message ? 'A chat message was reported in Foursome.' : 'A user was reported in Foursome.',
           '',
           `Reporter: ${reporterId}`,
           `Reported: ${reportedId}`,
           `Reason: ${reason}`,
+          ...(message ? [
+            `Round: ${message.teetime_id}`,
+            `Message ${message.id} from ${message.sender_name}: "${String(message.text).slice(0, 1000)}"`,
+          ] : []),
           '',
           'Review and act on it in Supabase Dashboard > Table Editor > user_reports',
           '(ban by setting the reported user\'s "banned" column to true in the users table).',
@@ -495,7 +497,7 @@ async function attachAuthUser(req, res, next) {
 
 // --- Guest tokens -----------------------------------------------------------
 // Guests have no Supabase session, and their ids aren't secret (they show
-// up in teetimes.requests/viewedBy), so a bare ?userId= can't prove who's
+// up in teetimes.requests), so a bare ?userId= can't prove who's
 // asking. Instead, the one POST /api/profiles call that first creates a
 // guest's users row hands back a signed token for that id, which the app
 // keeps on the device and sends as "X-Guest-Token". It's stateless (an HMAC
@@ -618,8 +620,8 @@ app.post('/api/auth/migrate-guest', ah(async (req, res) => {
 
 // Permanently deletes a user's data — profile, rounds they hosted (and
 // those rounds' chat history), their ratings, push subscriptions, and their
-// entries inside other people's teetimes.requests/viewedBy, and their course
-// requests. Only ever acts on the verified caller — a signed-in user's own
+// entries inside other people's teetimes.requests, and any course requests
+// left from the removed "request this course" feature. Only ever acts on the verified caller — a signed-in user's own
 // id, or a guest proven by their guest token. When signed in, also deletes the actual Supabase
 // Auth account — from that point the access token they were using is dead.
 app.delete('/api/account', ah(async (req, res) => {
@@ -894,21 +896,6 @@ app.post('/api/teetimes/:id/rate', ah(async (req, res) => {
   res.json(await buildTeetimeResponse(row, verifiedUserId(req)));
 }));
 
-app.post('/api/teetimes/:id/view', ah(async (req, res) => {
-  const userId = verifiedUserId(req);
-  if (!userId) return res.status(401).json({ error: 'Sign in required' });
-  const { data: row, error } = await supabase.from('teetimes').select('*').eq('id', req.params.id).maybeSingle();
-  if (error) return res.status(500).json({ error: 'Could not load tee time' });
-  if (!row) return res.status(404).json({ error: 'Not found' });
-  if (row.host_id === userId) return res.json({ ok: true }); // don't count self-views
-  const viewedBy = row.viewed_by || [];
-  if (!viewedBy.includes(userId)) {
-    viewedBy.push(userId);
-    await supabase.from('teetimes').update({ viewed_by: viewedBy }).eq('id', req.params.id);
-  }
-  res.json({ ok: true });
-}));
-
 app.delete('/api/teetimes/:id', ah(async (req, res) => {
   const userId = verifiedUserId(req);
   if (!userId) return res.status(401).json({ error: 'Sign in required' });
@@ -943,7 +930,7 @@ app.get('/api/teetimes/:id/messages', ah(async (req, res) => {
   }
   const { data: messages, error: msgError } = await supabase
     .from('messages')
-    .select('senderId:sender_id, senderName:sender_name, text, createdAt:created_at')
+    .select('id, senderId:sender_id, senderName:sender_name, text, createdAt:created_at')
     .eq('teetime_id', req.params.id)
     .order('created_at', { ascending: true });
   if (msgError) return res.status(500).json({ error: 'Could not load messages' });
@@ -980,7 +967,7 @@ app.post('/api/teetimes/:id/messages', ah(async (req, res) => {
 
   const { data: messages, error: msgError } = await supabase
     .from('messages')
-    .select('senderId:sender_id, senderName:sender_name, text, createdAt:created_at')
+    .select('id, senderId:sender_id, senderName:sender_name, text, createdAt:created_at')
     .eq('teetime_id', req.params.id)
     .order('created_at', { ascending: true });
   if (msgError) return res.status(500).json({ error: 'Could not load messages' });
@@ -1048,10 +1035,6 @@ app.get('/privacy', (req, res) => {
 
 app.get('/terms', (req, res) => {
   res.send(renderLegalPage('Terms of Service', renderLegalSections(legal.TERMS_SECTIONS), legal.TERMS_EFFECTIVE_DATE));
-});
-
-app.get('/cookies', (req, res) => {
-  res.send(renderLegalPage('Cookie Policy', renderLegalSections(legal.COOKIE_SECTIONS)));
 });
 
 app.get('/refund', (req, res) => {
@@ -1193,20 +1176,57 @@ app.delete('/api/blocks/:blockedId', ah(async (req, res) => {
 // Still no in-app review dashboard — reports land in Supabase (user_reports)
 // and now also trigger an email to ADMIN_EMAIL so they don't just sit
 // silently; acting on one (banning) is still a manual Table Editor flip.
+// Reports a user, or (with messageId) one chat message. For a message the
+// reporter must be in that round, and the reported user is taken from the
+// message itself, never from the client.
 app.post('/api/reports', ah(async (req, res) => {
   const userId = verifiedUserId(req);
   if (!userId) return res.status(401).json({ error: 'Sign in required' });
-  const { reportedId, reason } = req.body;
-  if (!userId || !reportedId || !reason || !reason.trim()) {
-    return res.status(400).json({ error: 'reportedId and reason are required' });
+  const { reason, messageId } = req.body;
+  let { reportedId } = req.body;
+  if (!reason || !reason.trim()) return res.status(400).json({ error: 'reason is required' });
+
+  let message = null;
+  if (messageId != null) {
+    const { data: msg, error: msgError } = await supabase
+      .from('messages').select('id, teetime_id, sender_id, sender_name, text').eq('id', messageId).maybeSingle();
+    if (msgError) return res.status(500).json({ error: 'Could not load that message' });
+    if (!msg) return res.status(404).json({ error: 'That message no longer exists' });
+    const { data: round, error: roundError } = await supabase.from('teetimes').select('*').eq('id', msg.teetime_id).maybeSingle();
+    if (roundError) return res.status(500).json({ error: 'Could not load that round' });
+    if (!round || !isParticipant(round, userId)) return res.status(403).json({ error: 'Not authorized for this chat' });
+    message = msg;
+    reportedId = msg.sender_id;
   }
+
+  if (!reportedId) return res.status(400).json({ error: 'reportedId or messageId is required' });
   if (userId === reportedId) return res.status(400).json({ error: "You can't report yourself" });
   const cleanReason = reason.trim().slice(0, 500);
-  const { error } = await supabase.from('user_reports').insert({
-    reporter_id: userId, reported_id: reportedId, reason: cleanReason, created_at: Date.now()
-  });
-  if (error) return res.status(500).json({ error: 'Could not submit report' });
-  notifyAdminOfReport(userId, reportedId, cleanReason).catch(() => {});
+  const base = { reporter_id: userId, reported_id: reportedId, reason: cleanReason, created_at: Date.now() };
+
+  let error;
+  if (message) {
+    const messageText = String(message.text).slice(0, 1000);
+    ({ error } = await supabase.from('user_reports').insert({
+      ...base, message_id: message.id, teetime_id: message.teetime_id, message_text: messageText,
+    }));
+    // Until supabase-message-reports.sql has been run, those columns don't
+    // exist; keep the report anyway, with the message folded into the reason.
+    if (error && /message_id|message_text|teetime_id|column|schema cache/i.test(error.message || '')) {
+      console.warn('user_reports is missing the message columns: run supabase-message-reports.sql. Saving the message in the reason instead.');
+      ({ error } = await supabase.from('user_reports').insert({
+        ...base,
+        reason: `${cleanReason}\n\nReported chat message ${message.id} in round ${message.teetime_id}: "${messageText}"`,
+      }));
+    }
+  } else {
+    ({ error } = await supabase.from('user_reports').insert(base));
+  }
+  if (error) {
+    console.error('Failed to save report:', error.message);
+    return res.status(500).json({ error: 'Could not submit report' });
+  }
+  notifyAdminOfReport(userId, reportedId, cleanReason, message).catch(() => {});
   res.json({ ok: true });
 }));
 
@@ -1246,79 +1266,6 @@ app.post('/api/course-ratings', ah(async (req, res) => {
   }
   const summary = await getCourseRatingSummary(courseName.trim());
   res.json({ ok: true, avgRating: summary.avgRating, ratingCount: summary.ratingCount });
-}));
-
-// --- Book a Tee Time (course request / waitlist) --------------------------
-// No real booking integration yet — this just collects demand signal on
-// which courses people actually want, and when. Every submission is logged
-// as-is (no dedup) since requesting the same course again with a different
-// date is a normal thing to do; /mine returns the user's own pending
-// requests in full so the UI can list and let them cancel any of them.
-function courseRequestJson(row) {
-  return {
-    id: row.id,
-    courseName: row.course_name,
-    preferredDate: row.preferred_date,
-    preferredTime: row.preferred_time,
-    createdAt: row.created_at,
-  };
-}
-
-app.get('/api/course-requests/mine', ah(async (req, res) => {
-  const userId = verifiedUserId(req);
-  if (!userId) return res.status(401).json({ error: 'Sign in required' });
-  const { data, error } = await supabase
-    .from('course_requests')
-    .select('id, course_name, preferred_date, preferred_time, created_at')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false });
-  if (error) {
-    console.error('Failed to load course requests:', error.message);
-    return res.status(500).json({ error: 'Could not load your requests' });
-  }
-  res.json({ requests: (data || []).map(courseRequestJson) });
-}));
-
-app.post('/api/course-requests', ah(async (req, res) => {
-  const { courseName, preferredDate, preferredTime } = req.body;
-  const userId = verifiedUserId(req);
-  if (!userId) return res.status(401).json({ error: 'Sign in required' });
-  if (!userId || !courseName || !courseName.trim()) {
-    return res.status(400).json({ error: 'userId and courseName are required' });
-  }
-  if (await isBanned(userId)) return res.status(403).json(BANNED_ERROR);
-  const { data, error } = await supabase.from('course_requests').insert({
-    course_name: courseName.trim(),
-    user_id: userId,
-    preferred_date: preferredDate || null,
-    preferred_time: preferredTime || null,
-    created_at: Date.now()
-  }).select().single();
-  if (error) {
-    console.error('Failed to save course request:', error.message);
-    return res.status(500).json({ error: 'Could not save your request' });
-  }
-  res.json({ ok: true, request: courseRequestJson(data) });
-}));
-
-app.delete('/api/course-requests/:id', ah(async (req, res) => {
-  const userId = verifiedUserId(req);
-  if (!userId) return res.status(401).json({ error: 'Sign in required' });
-  if (!userId) return res.status(400).json({ error: 'userId is required' });
-  const { data: existing, error: fetchError } = await supabase
-    .from('course_requests').select('id, user_id').eq('id', req.params.id).maybeSingle();
-  if (fetchError) {
-    console.error('Failed to load course request:', fetchError.message);
-    return res.status(500).json({ error: 'Could not load request' });
-  }
-  if (!existing) return res.status(404).json({ error: 'Not found' });
-  if (existing.user_id !== userId) return res.status(403).json({ error: 'Not your request' });
-  const { error } = await supabase.from('course_requests').delete().eq('id', req.params.id);
-  if (error) {
-    console.error('Failed to cancel course request:', error.message);
-    return res.status(500).json({ error: 'Could not cancel request' });
-  }
-  res.json({ ok: true });
 }));
 
 // --- Find a course: live course search (OpenStreetMap) --------------------
