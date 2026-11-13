@@ -44,6 +44,11 @@ checks on users — like any app that connects you with people you
 haven't met, use the same judgment you would anywhere else: consider
 meeting for the first time at the course, and tell someone your plans.
 
+FOURSOME EVENTS
+Join organized golf events near you from the Events tab. Pay securely by
+card or SINPE Móvil, see who's going, and cancel for a full refund up to
+the cutoff. Want one somewhere else? Request an event.
+
 WHAT FOURSOME ISN'T
 Foursome is not a tee time booking service and isn't affiliated with any
 golf course or booking platform. Posting or joining a round doesn't
@@ -80,6 +85,7 @@ There are no analytics, ad, or tracking SDKs anywhere in the codebase.
 | **Location — Precise Location** | Yes, once the user grants permission (checked when the app is opened or brought to the foreground, only while in use) | App Functionality | No — sent with nearby-course searches, never stored | No |
 | **User Content — Other User Content** (bio, round details/notes, chat messages, ratings & comments, reports you file) | Yes | App Functionality | Yes | No |
 | **Identifiers — User ID** | Yes | App Functionality | Yes | No |
+| **Purchases — Purchase History** (paid event spots: amount, date, refund status) | Yes, only if the user pays for an event | App Functionality | Yes | No |
 | **Identifiers — Device ID** (push notification token, only if notifications are enabled) | Yes, opt-in only | App Functionality | Yes | No |
 | Health & Fitness | No | — | — | — |
 | Financial Info | No | — | — | — |
@@ -156,6 +162,13 @@ HOW TO TEST
    or brought back to the foreground — never in the background — to
    sort rounds by distance and find nearby courses. Coordinates are
    not stored.
+9. Paid events (Events tab): these are in-person golf events at a real
+   course. Payment is for attending the event in person, so per App
+   Store Review Guideline 3.1.3(e) it uses an outside payment provider
+   (ONVO Pay, Costa Rica, cards and SINPE Móvil) on ONVO's hosted page,
+   not In-App Purchase. No digital content or app features are sold.
+   Refunds: full refund if the player cancels before the event's
+   cutoff, or automatically if we cancel the event.
 
 The backend is a public web app in its own right at
 https://felipepostolov.onrender.com, which the app talks to for

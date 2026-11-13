@@ -245,6 +245,51 @@ function makePayments(deps) {
 </body></html>`);
     });
 
+    const requireAdmin = (req, res) => {
+      if (deps.isEventAdmin(req)) return true;
+      res.status(req.authUser ? 403 : 401).json({ error: 'Only the Foursome owner can do that' });
+      return false;
+    };
+
+    // The owner cancels an event: everyone who paid is refunded in full.
+    app.post('/api/admin/events/:id/cancel', ah(async (req, res) => {
+      if (!requireAdmin(req, res)) return;
+      const { data: ev, error } = await supabase.from('events').select('*').eq('id', req.params.id).maybeSingle();
+      if (error) return res.status(500).json({ error: 'Could not load event' });
+      if (!ev) return res.status(404).json({ error: 'Event not found' });
+      const result = await cancelEventWithRefunds(ev.id);
+      res.json({ ok: true, ...result });
+    }));
+
+    // The owner retries a refund that failed.
+    app.post('/api/admin/registrations/:id/refund', ah(async (req, res) => {
+      if (!requireAdmin(req, res)) return;
+      const result = await refundRegistration(Number(req.params.id));
+      if (result.error) return res.status(502).json({ error: `Refund failed: ${result.error}` });
+      if (result.skipped) return res.status(409).json({ error: 'That payment already has a refund under way, or isn’t paid' });
+      res.json({ ok: true });
+    }));
+
+    // A player cancels their own spot. Paid, before the cutoff: full refund.
+    // Only held (not paid yet): the hold is released.
+    app.post('/api/events/:id/cancel-my-spot', ah(async (req, res) => {
+      if (!req.authUser) return res.status(403).json({ error: 'Log in to manage your spot', code: 'account_required' });
+      const { data: ev } = await supabase.from('events').select('*').eq('id', req.params.id).maybeSingle();
+      if (!ev) return res.status(404).json({ error: 'Event not found' });
+      const { data: reg } = await supabase.from('event_registrations').select('*')
+        .eq('event_id', ev.id).eq('user_id', req.authUser.id).in('status', ['held', 'confirmed'])
+        .order('id', { ascending: false }).limit(1).maybeSingle();
+      if (!reg) return res.status(404).json({ error: 'You don’t have a spot in this event' });
+      if (reg.status === 'held') {
+        await releaseHold(reg);
+        return res.json({ ok: true, released: true });
+      }
+      if (!beforeCutoff(ev)) return res.status(409).json({ error: 'It’s past the cancellation cutoff for this event, so it can’t be refunded' });
+      const result = await refundRegistration(reg.id);
+      if (result.error) return res.status(502).json({ error: 'We couldn’t start your refund — try again, or contact us' });
+      res.json({ ok: true, refunding: true });
+    }));
+
     // The owner's list of paid attendees (and anyone mid-refund) for an event.
     app.get('/api/admin/events/:id/attendees', ah(async (req, res) => {
       if (!deps.isEventAdmin(req)) return res.status(req.authUser ? 403 : 401).json({ error: 'Only the Foursome owner can do that' });
@@ -262,7 +307,61 @@ function makePayments(deps) {
     }));
   }
 
-  return { registerWebhook, registerRoutes, sweepExpiredHolds, refundRegistration, HOLD_MINUTES };
+  // Lets go of a hold (not paid): expires the ONVO page so it can't be paid.
+  async function releaseHold(reg) {
+    if (reg.checkout_session_id) {
+      try { await onvo.expireCheckoutSession(reg.checkout_session_id); }
+      catch (e) { if (!(e.status >= 400 && e.status < 500)) console.warn(`Could not expire ONVO session ${reg.checkout_session_id}:`, e.message); }
+    }
+    await supabase.from('event_registrations')
+      .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+      .eq('id', reg.id).eq('status', 'held');
+  }
+
+  // Part E: the owner cancels an event. Everyone who paid gets a full
+  // refund; open holds are released. Safe to call again — paid spots that
+  // already have a refund under way are skipped.
+  async function cancelEventWithRefunds(eventId) {
+    const { error } = await supabase.from('events')
+      .update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('id', eventId);
+    if (error) throw error;
+    const { data: regs, error: regError } = await supabase.from('event_registrations')
+      .select('*').eq('event_id', eventId).in('status', ['held', 'confirmed', 'refund_pending']);
+    if (regError) throw regError;
+    let refunding = 0; let failed = 0;
+    for (const reg of regs || []) {
+      if (reg.status === 'held') { await releaseHold(reg); continue; }
+      const result = await refundRegistration(reg.id);
+      if (result.error) failed++; else if (!result.skipped) refunding++;
+      if (deps.notifyUser) {
+        deps.notifyUser(reg.user_id, 'Event cancelled', 'An event you paid for was cancelled. Your payment is being refunded in full.').catch(() => {});
+      }
+    }
+    return { refunding, failed };
+  }
+
+  // Can this player still cancel their own paid spot for a refund?
+  function beforeCutoff(ev) {
+    const cutoff = new Date(ev.starts_at).getTime() - ev.cancel_cutoff_hours * 60 * 60 * 1000;
+    return Date.now() < cutoff;
+  }
+
+  // Account deletion: refund paid spots in upcoming events, release holds,
+  // and replace the name on every remaining payment record. The records
+  // themselves stay, for bookkeeping.
+  async function handleAccountDeletion(userId) {
+    const { data: regs, error } = await supabase.from('event_registrations')
+      .select('*, events!inner(starts_at, status)').eq('user_id', userId).in('status', ['held', 'confirmed']);
+    if (error) throw error;
+    for (const reg of regs || []) {
+      if (reg.status === 'held') await releaseHold(reg);
+      else if (new Date(reg.events.starts_at) > new Date() && reg.events.status === 'open') await refundRegistration(reg.id);
+    }
+    await supabase.from('event_registrations').update({ user_name: 'Deleted user' }).eq('user_id', userId);
+    await supabase.from('event_requests').delete().eq('user_id', userId);
+  }
+
+  return { registerWebhook, registerRoutes, sweepExpiredHolds, refundRegistration, cancelEventWithRefunds, handleAccountDeletion, HOLD_MINUTES };
 }
 
 module.exports = { makePayments, HOLD_MINUTES };

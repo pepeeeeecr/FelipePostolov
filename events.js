@@ -287,20 +287,7 @@ function registerEventRoutes(app, deps) {
     res.json(eventJson(row, regs));
   }));
 
-  app.post('/api/admin/events/:id/cancel', ah(async (req, res) => {
-    if (!requireAdmin(req, res)) return;
-    const { data: existing, error: loadError } = await supabase.from('events').select('*').eq('id', req.params.id).maybeSingle();
-    if (loadError) return res.status(500).json({ error: 'Could not load event' });
-    if (!existing) return res.status(404).json({ error: 'Event not found' });
-    if (existing.status === 'cancelled') return res.json({ ok: true });
-    // Until cancelling also refunds everyone (part E), don't strand payments.
-    const paid = ((await registrationsFor([existing.id])).get(existing.id) || []).filter(r => r.status === 'confirmed').length;
-    if (paid > 0) return res.status(409).json({ error: `${paid} ${paid === 1 ? 'person has' : 'people have'} paid. Cancelling with automatic refunds is coming in the next update.` });
-    const { error } = await supabase.from('events')
-      .update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('id', existing.id);
-    if (error) return res.status(500).json({ error: 'Could not cancel the event' });
-    res.json({ ok: true });
-  }));
+  // Cancelling an event (with refunds) lives in eventPayments.js.
 
   app.get('/api/admin/event-requests', ah(async (req, res) => {
     if (!requireAdmin(req, res)) return;

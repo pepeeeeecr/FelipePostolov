@@ -188,7 +188,7 @@ const state = {
 // LEGAL_POLICY_VERSION is stamped onto a user's consent record the one
 // time it's captured (the welcome-gate checkbox) — bump it if these
 // policies ever change in a way that should prompt re-consent.
-const LEGAL_POLICY_VERSION = '2026-11-13';
+const LEGAL_POLICY_VERSION = '2026-11-13-events';
 
 // Features switched off for now. The code is still here — flip one to true
 // to bring it back. Mirrors src/features.js in the mobile app.
@@ -201,9 +201,9 @@ const FEATURES = {
   courseReviews: false,     // course ratings and reviews
   refundPolicy: false,      // Settings > Refund Policy (back with paid events)
 };
-const LEGAL_EFFECTIVE_DATE = 'October 12, 2026';
+const LEGAL_EFFECTIVE_DATE = 'November 13, 2026';
 // The Terms changed after the other policies, so they carry their own date.
-const TERMS_EFFECTIVE_DATE = 'October 16, 2026';
+const TERMS_EFFECTIVE_DATE = 'November 13, 2026';
 // Standing availability tags — fixed vocabulary, mirrors AVAILABILITY_TAGS
 // in server.js.
 const AVAILABILITY_OPTIONS = [
@@ -231,6 +231,7 @@ const TERMS_SECTIONS = [
   { h: 'Blocking and reporting', p: ["If you'd rather not interact with a specific user, you can block them — this hides your rounds from each other and prevents join requests between you, in both directions. If you believe someone has violated these terms or otherwise made you feel unsafe, you can report them, separately from blocking. We review reports and may take action, including warning, suspending, or removing an account, at our discretion."] },
   { h: 'Your content', p: ["You own what you post — your bio, round notes, messages, and ratings. By posting it on Foursome, you're giving us permission to store and display it to the other users it's meant for (for example, showing your round notes to people browsing Discover, or your bio to someone viewing your profile). You're responsible for what you post and confirm you have the right to share it."] },
   { h: 'Account termination', p: ["You can delete your account at any time from Settings — this permanently removes your profile, the rounds you've hosted (along with their chat history), your ratings, and (if you're signed in) your login itself. We may suspend or terminate your account if you violate these terms."] },
+  { h: 'Paid events', p: ["Foursome organizes some golf events that you pay to join. Events happen in person, at the course shown on the event; you're paying for your spot at that event, not for anything inside the app.", "Event prices are in Costa Rican colones. Payments are processed by ONVO Pay, by card or SINPE Móvil, on ONVO's secure payment page. While you pay, your spot is held for 20 minutes; it's confirmed only once ONVO confirms the payment.", "You can cancel your spot for a full refund up until the cancellation cutoff shown on the event. After the cutoff, payments aren't refundable. If Foursome cancels an event, everyone who paid is refunded in full automatically. See the Refund Policy for details.", "You must be 18 or older and have an account to pay for an event. The course's own rules apply at the event, and the conduct rules in these terms apply to events too."] },
   { h: 'No warranty, limitation of liability', p: ['Foursome is provided "as is." We work to keep it running reliably, but we don\'t guarantee it will always be available, error-free, or that any particular round, course, or golfer will meet your expectations. To the fullest extent the law allows, Foursome isn\'t liable for disputes, injuries, or losses arising from interactions between users, or from a course\'s own policies, conditions, or availability.'] },
   { h: 'Changes to these terms', p: ["We may update these terms as Foursome changes. If we make a significant change, we'll do our best to let you know in the app. Continuing to use Foursome after an update means you accept the revised terms."] },
   { h: 'Contact', p: ['Questions about these terms? Email us at foursomeapp.golf@gmail.com.'] },
@@ -242,13 +243,13 @@ const PRIVACY_SECTIONS = [
     "Account info: If you sign up with email and password, that's handled by our authentication provider, Supabase — we never see or store your plaintext password. If you use Foursome as a guest, we assign a random local ID stored only on your device; there's no email or password involved.",
     'Profile info: your name, home course, handicap, and bio (if you add one) — set when you create your profile and visible to other Foursome users.',
     'Rounds, messages, ratings, and reports: the tee times you post or request to join, chat messages within a round, ratings and comments you leave for other players, and reports you file against another user.',
-    'Location: once you allow it, the app checks your location each time you open it or bring it back to the foreground. It only does this while you\'re using the app, never in the background. Your coordinates are used to sort rounds by distance and to find nearby golf courses (they\'re sent to our server for each course search so it can look them up via OpenStreetMap). We don\'t store your coordinates.', "On your device: the app keeps your login and settings on your device so you don't have to sign in every time.",
+    'Location: once you allow it, the app checks your location each time you open it or bring it back to the foreground. It only does this while you\'re using the app, never in the background. Your coordinates are used to sort rounds by distance and to find nearby golf courses (they\'re sent to our server for each course search so it can look them up via OpenStreetMap). We don\'t store your coordinates.', "On your device: the app keeps your login and settings on your device so you don't have to sign in every time.", "Paid events: if you join a paid event, we store your name, the event, the amount, when you paid, any refund, and the payment references ONVO gives us. Card details and SINPE Móvil information are entered on ONVO's page and go to ONVO, never to us. If you use \"Request an event\", we store the course and note you send.",
     "Push notification data: if you turn on notifications, we store a push subscription — an anonymous endpoint provided by your browser (website) or an Expo push token (mobile app) — so we can alert you about join requests, approvals, and messages.",
   ] },
   { h: 'How we use your information', list: ['To run the core features — posting/joining rounds, matching you with other golfers, messaging within a round, and showing ratings and mutual-round history on profiles', 'To help you find nearby rounds and courses when you choose to share your location', 'To respond to reports and enforce our Terms of Service', "To send you notifications you've opted into", 'To keep Foursome secure and working reliably'], p: ["We don't use your information for advertising, and we don't sell it to third parties."] },
-  { h: 'Who can see what', p: ["Your name, home course, handicap, bio, and rating are visible to other Foursome users, particularly anyone viewing a round you're hosting or joining. Round chat is only visible to that round's host and approved participants. Reports you file are visible only to us."] },
-  { h: 'Third parties we work with', p: ['We use a small number of outside services to run Foursome:'], list: ["Supabase — our database, authentication, and hosting provider. Your account, profile, and app data are stored on Supabase's infrastructure.", 'OpenStreetMap (Nominatim and Overpass) — public, community-run map data we query to look up golf course names and locations. We only send a search term or coordinates for that lookup, never your identity.'] },
-  { h: 'How long we keep your data', p: ["We keep your data for as long as your account is active. If you delete your account from Settings, we permanently remove your profile, the rounds you've hosted (and their chat history), your ratings, your push subscription, and your blocks — and, if you were signed in, your login itself. Reports you filed against others are deleted too.", "One exception: if someone else filed a report about you, we keep that report even after you delete your account, since it's part of our safety record and not something a person should be able to erase by leaving."] },
+  { h: 'Who can see what', p: ["Your name, home course, handicap, bio, and rating are visible to other Foursome users, particularly anyone viewing a round you're hosting or joining. Round chat is only visible to that round's host and approved participants. Reports you file are visible only to us. If you pay for an event, signed-in Foursome users can see your name in that event's “Who's going” list; guests only see how many people are going."] },
+  { h: 'Third parties we work with', p: ['We use a small number of outside services to run Foursome:'], list: ["Supabase — our database, authentication, and hosting provider. Your account, profile, and app data are stored on Supabase's infrastructure.", 'OpenStreetMap (Nominatim and Overpass) — public, community-run map data we query to look up golf course names and locations. We only send a search term or coordinates for that lookup, never your identity.', "ONVO Pay — processes payments for paid events (cards and SINPE Móvil). Payment details go directly to ONVO; ONVO's own privacy policy covers how they handle them."] },
+  { h: 'How long we keep your data', p: ["We keep your data for as long as your account is active. If you delete your account from Settings, we permanently remove your profile, the rounds you've hosted (and their chat history), your ratings, your push subscription, and your blocks — and, if you were signed in, your login itself. Reports you filed against others are deleted too. Payment records for events are kept after you delete your account, because we need them for bookkeeping; your name on them is replaced with “Deleted user”, and any upcoming event you'd paid for is refunded in full.", "One exception: if someone else filed a report about you, we keep that report even after you delete your account, since it's part of our safety record and not something a person should be able to erase by leaving."] },
   { h: 'Your choices', list: ["Location is entirely opt-in — the app works without it, just without distance sorting and nearby course search.", 'You can edit your profile (name, home course, handicap, bio) any time from Settings.', 'You can turn push notifications on or off from Settings.', 'You can block or report another user any time from their profile.', 'You can delete your account entirely from Settings — see above for what that removes.'] },
   { h: "Children's privacy", p: ["Foursome isn't intended for anyone under 18, and we don't knowingly collect information from anyone under that age."] },
   { h: 'Security', p: ["We take reasonable steps to protect your information, but no app or service can guarantee complete security. Please use a strong, unique password if you create a full account."] },
@@ -257,9 +258,13 @@ const PRIVACY_SECTIONS = [
 ];
 
 const REFUND_SECTIONS = [
-  { h: 'The short version', p: ["Foursome is free to use. Since there's nothing to buy, there's nothing to refund."] },
-  { h: 'If that changes', p: ["If Foursome introduces paid events, we'll update this policy before charging anyone, so it accurately describes how refunds work for whatever's actually offered at that time."] },
-  { h: 'Contact', p: ['Questions about this policy? Email us at foursomeapp.golf@gmail.com.'] },
+  { h: "The short version", p: ["Using Foursome is free. The only thing you can pay for is a spot at a Foursome event, and those come with a full refund if you cancel in time or if we cancel the event."] },
+  { h: "Cancelling your spot", p: ["Open the event in the Events tab and tap \"Cancel for a full refund\". You can do this until the cancellation cutoff shown on the event (for example, 48 hours before it starts). You get back everything you paid; we cover the payment processing fees."] },
+  { h: "After the cutoff", p: ["Once the cutoff has passed, payments aren't refundable, because a spot usually can't be filled at short notice."] },
+  { h: "If we cancel an event", p: ["If Foursome cancels an event, everyone who paid is refunded in full automatically. You don't need to do anything."] },
+  { h: "How refunds reach you", p: ["Refunds go back to the card or account you paid with, through ONVO Pay. How long they take to appear depends on your bank, usually a few business days. If a refund fails, we'll retry it or contact you."] },
+  { h: "Unfinished payments", p: ["If you start paying but don't finish, nothing is charged, and your held spot is released after 20 minutes. You can also release it yourself from the event."] },
+  { h: "Contact", p: ["Questions about a payment or a refund? Email us at foursomeapp.golf@gmail.com."] },
 ];
 
 const HELP_SECTIONS = [
@@ -275,6 +280,7 @@ const HELP_SECTIONS = [
   { h: 'What does blocking someone do?', p: ["Blocking hides your rounds from that person (and theirs from you) in Discover, and stops either of you from requesting to join the other's rounds. You can block someone from their profile or from a round's participant list, and unblock them the same way later."] },
   { h: 'How do I report someone?', p: ["Open their profile and tap Report user, then briefly describe what happened. Reports go straight to us for review — they're separate from blocking, so you can report someone whether or not you've also blocked them."] },
   { h: 'What is "Find a course"?', p: ["It's where you find golf courses. Search by name or see what's nearby. It doesn't reserve an actual tee time at the course."] },
+  { h: 'What are Foursome events?', p: ["Organized golf events you pay to join, in colones, by card or SINPE Móvil through ONVO Pay. Find them in the Events tab. You can cancel for a full refund until the cutoff shown on each event, and if we cancel an event you're refunded automatically. Want one near you? Tap \"Request an event\"."] },
   { h: 'How do I delete my account?', p: ["Go to Settings > Delete account. This is permanent — it removes your profile, hosted rounds and their chat history, ratings, and (if you're signed in) your login."] },
   { h: 'Who do I contact if I need help?', p: ['Email foursomeapp.golf@gmail.com — see Contact us in Settings for a direct link.'] },
 ];

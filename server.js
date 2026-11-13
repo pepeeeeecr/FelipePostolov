@@ -584,7 +584,7 @@ function resolveUserId(req, bodyUserId) {
 
 // Paid-event payments (ONVO). Built here, near the top, because its
 // webhook route has to be registered before the JSON body parser.
-const eventPayments = makePayments({ supabase, ah, getUser, isBanned, BANNED_ERROR, isEventAdmin });
+const eventPayments = makePayments({ supabase, ah, getUser, isBanned, BANNED_ERROR, isEventAdmin, notifyUser });
 
 // --- Middleware ---------------------------------------------------------
 app.use(cors()); // relax to your real domain before a public launch
@@ -650,6 +650,15 @@ app.post('/api/auth/migrate-guest', ah(async (req, res) => {
 app.delete('/api/account', ah(async (req, res) => {
   const userId = verifiedUserId(req);
   if (!userId) return res.status(401).json({ error: 'Sign in required' });
+
+  // Paid events first: refund upcoming paid spots and remove the name from
+  // payment records (kept for bookkeeping).
+  try {
+    await eventPayments.handleAccountDeletion(userId);
+  } catch (e) {
+    console.error('Failed to settle event payments for deleted account:', e.message);
+    return res.status(500).json({ error: 'Could not delete account data' });
+  }
 
   const { error: rpcError } = await supabase.rpc('delete_user_account', { p_user_id: userId });
   if (rpcError) {
