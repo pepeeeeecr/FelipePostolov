@@ -1,0 +1,123 @@
+[
+  {
+    "name": "Campo de Golf Los Reyes",
+    "lat": 9.945057,
+    "lng": -84.269257,
+    "town": "Guácima",
+    "province": "Alajuela",
+    "holes": null,
+    "website": null,
+    "osm_id": "relation/14305683",
+    "source": "osm"
+  },
+  {
+    "name": "Campo de Golf Four Seasons",
+    "lat": 10.62089,
+    "lng": -85.681694,
+    "town": "Nacascolo",
+    "province": "Guanacaste",
+    "holes": null,
+    "website": null,
+    "osm_id": "way/107103338",
+    "source": "osm"
+  },
+  {
+    "name": "Club de Golf Hacienda Pinilla",
+    "lat": 10.256543,
+    "lng": -85.841804,
+    "town": "Santa Cruz",
+    "province": "Guanacaste",
+    "holes": null,
+    "website": null,
+    "osm_id": "relation/14607503",
+    "source": "osm"
+  },
+  {
+    "name": "Golf Westin Conchal",
+    "lat": 10.395824,
+    "lng": -85.804357,
+    "town": "Cabo Velas",
+    "province": "Guanacaste",
+    "holes": null,
+    "website": null,
+    "osm_id": "way/90457241",
+    "source": "osm"
+  },
+  {
+    "name": "Papagayo Golf & Country Club",
+    "lat": 10.500609,
+    "lng": -85.63257,
+    "town": "Sardinal",
+    "province": "Guanacaste",
+    "holes": null,
+    "website": null,
+    "osm_id": "way/302703743",
+    "source": "osm"
+  },
+  {
+    "name": "Club Campestre Cariari",
+    "lat": 9.971757,
+    "lng": -84.157537,
+    "town": "La Asunción",
+    "province": "Heredia",
+    "holes": null,
+    "website": null,
+    "osm_id": "way/25331124",
+    "source": "osm"
+  },
+  {
+    "name": "Campo de Golf de Osa",
+    "lat": 9.027576,
+    "lng": -83.57969,
+    "town": "Puerto Cortés",
+    "province": "Puntarenas",
+    "holes": null,
+    "website": null,
+    "osm_id": "relation/17550571",
+    "source": "osm"
+  },
+  {
+    "name": "La Iguana Golf Course (Los Sueños)",
+    "lat": 9.652456,
+    "lng": -84.657905,
+    "town": "Herradura",
+    "province": "Puntarenas",
+    "holes": "18",
+    "website": null,
+    "osm_id": "way/336161857",
+    "source": "manual"
+  },
+  {
+    "name": "Los Delfines Golf and Country Club",
+    "lat": 9.743573,
+    "lng": -85.014761,
+    "town": "Paquera",
+    "province": "Puntarenas",
+    "holes": null,
+    "website": null,
+    "osm_id": "way/1572324286",
+    "source": "osm"
+  },
+  {
+    "name": "Campo de Golf Santa Ana",
+    "lat": 9.948599,
+    "lng": -84.212417,
+    "town": "Pozos",
+    "province": "San José",
+    "holes": null,
+    "website": null,
+    "osm_id": "way/25492500",
+    "source": "osm"
+  },
+  {
+    "name": "Costa Rica Country Club",
+    "lat": 9.928007,
+    "lng": -84.143337,
+    "town": "Escazú",
+    "province": "San José",
+    "holes": null,
+    "website": null,
+    "osm_id": "way/25331424",
+    "source": "osm"
+  }
+]

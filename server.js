@@ -16,6 +16,7 @@ const { makePayments } = require('./eventPayments');
 const { registerSharePages } = require('./sharePages');
 const { translateErrors, push } = require('./i18n');
 const legalEs = require('./legalContent.es');
+const { makeCrCourses } = require('./crCourses');
 const legal = require('./legalContent');
 
 const app = express();
@@ -1385,6 +1386,21 @@ function setCachedOsm(key, data) {
   osmCache.delete(key);
   osmCache.set(key, { at: Date.now(), data });
   if (osmCache.size > OSM_CACHE_MAX) osmCache.delete(osmCache.keys().next().value);
+  // Also saved in the database, so a restart (every deploy, or Render
+  // waking up) doesn't lose it. Quietly skipped until the table exists.
+  supabase.from('course_search_cache')
+    .upsert({ key, data, complete: !!(data && data.complete), updated_at: new Date().toISOString() })
+    .then(({ error }) => { if (error && !/course_search_cache/.test(error.message)) console.warn('Course cache save failed:', error.message); });
+}
+
+// At startup: bring back the saved searches that are still within a week.
+async function loadSavedCourseSearches() {
+  const since = new Date(Date.now() - OSM_CACHE_STALE_MS).toISOString();
+  const { data, error } = await supabase.from('course_search_cache')
+    .select('key, data, updated_at').gte('updated_at', since).order('updated_at', { ascending: true }).limit(OSM_CACHE_MAX);
+  if (error) { console.warn('Saved course searches unavailable:', error.message); return; }
+  for (const row of data || []) osmCache.set(row.key, { at: new Date(row.updated_at).getTime(), data: row.data });
+  console.log(`Course searches: ${(data || []).length} restored from the database.`);
 }
 
 // Identical lookups that arrive while one is already running share its
@@ -1714,6 +1730,13 @@ app.get('/api/golf-courses/nearby', ah(async (req, res) => {
     return res.status(400).json({ error: 'lat and lng are required' });
   }
   const radiusMiles = Math.min(parseFloat(req.query.radiusMiles) || NEARBY_MAX_RADIUS_MILES, NEARBY_MAX_RADIUS_MILES);
+
+  // Costa Rica: straight from our own course list — instant and complete.
+  const crNearby = crCourses.nearby(lat, lng, radiusMiles);
+  if (crNearby) {
+    return res.json({ courses: await enrichCoursesWithRatings(crNearby.slice(0, NEARBY_MAX_RESULTS)), complete: true, source: 'database' });
+  }
+
   const area = nearbyArea(lat, lng);
 
   let entry = getCachedOsm(area.key);
@@ -1740,17 +1763,22 @@ app.get('/api/golf-courses/search', ah(async (req, res) => {
     return res.status(400).json({ error: 'Search term must be at least 3 characters' });
   }
   const cacheKey = `search:${term.toLowerCase()}`;
+  // Costa Rica courses from our own list come first (some, like La Iguana,
+  // aren't findable through OpenStreetMap's search at all).
+  const crMatches = crCourses.search(term);
+  const withCr = list => uniqueByName([...crMatches, ...(list || [])]);
   const cached = getCachedOsm(cacheKey);
-  if (cached) return res.json({ courses: await enrichCoursesWithRatings(cached), source: 'cache' });
+  if (cached) return res.json({ courses: await enrichCoursesWithRatings(withCr(cached)), source: 'cache' });
 
   try {
     const courses = await sharedLookup(cacheKey, () => searchFromNominatim(term));
     setCachedOsm(cacheKey, courses);
-    res.json({ courses: await enrichCoursesWithRatings(courses), source: 'nominatim' });
+    res.json({ courses: await enrichCoursesWithRatings(withCr(courses)), source: 'nominatim' });
   } catch (err) {
     console.error('Nominatim course search failed:', err.message);
     const stale = getCachedOsm(cacheKey, OSM_CACHE_STALE_MS);
-    if (stale) return res.json({ courses: await enrichCoursesWithRatings(stale), source: 'stale-cache' });
+    if (stale) return res.json({ courses: await enrichCoursesWithRatings(withCr(stale)), source: 'stale-cache' });
+    if (crMatches.length) return res.json({ courses: await enrichCoursesWithRatings(crMatches), source: 'database' });
     res.status(503).json({ error: COURSE_SEARCH_UNAVAILABLE });
   }
 }));
@@ -1773,6 +1801,11 @@ app.use((err, req, res, next) => {
   if (res.headersSent) return next(err);
   res.status(500).json({ error: 'Internal server error' });
 });
+
+// Costa Rica's courses (see crCourses.js) and saved course searches.
+const crCourses = makeCrCourses({ supabase, haversineMiles, overpassQuery, overpassServers: OVERPASS_SERVERS });
+crCourses.start();
+loadSavedCourseSearches().catch(e => console.warn('Saved course searches failed to load:', e.message));
 
 app.listen(PORT, () => {
   console.log(`Foursome backend listening on port ${PORT}`);
