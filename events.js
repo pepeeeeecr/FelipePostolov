@@ -1,5 +1,6 @@
 // Paid events: listing, the owner-only admin routes, and "Request an event".
-// Payment, holds and refunds build on these tables (see supabase-events.sql).
+// Prices are whole colones (CRC). Payment, holds and refunds are in
+// eventPayments.js (see supabase-events.sql and supabase-event-payments.sql).
 
 // Only these signed-in accounts (with a confirmed email) can create, edit
 // and cancel events. Set EVENT_ADMIN_EMAILS on the server (comma-separated)
@@ -76,8 +77,8 @@ function eventJson(row, regs, { haversineMiles, lat, lng } = {}) {
     timeZone: row.time_zone,
     whenLabel: whenLabel(start, row.time_zone),
     ...localParts(start, row.time_zone),
-    priceCents: row.price_cents,
-    currency: row.currency,
+    priceColones: row.price_colones,
+    currency: 'crc',
     maxPlayers: row.max_players,
     description: row.description || '',
     cancelCutoffHours: row.cancel_cutoff_hours,
@@ -99,7 +100,7 @@ function registerEventRoutes(app, deps) {
     if (eventIds.length === 0) return new Map();
     const { data, error } = await supabase
       .from('event_registrations')
-      .select('event_id, user_id, user_name, status, hold_expires_at, created_at')
+      .select('event_id, user_id, user_name, status, hold_expires_at, checkout_url, created_at')
       .in('event_id', eventIds);
     if (error) throw error;
     const byEvent = new Map(eventIds.map(id => [id, []]));
@@ -151,6 +152,8 @@ function registerEventRoutes(app, deps) {
     const viewerId = verifiedUserId(req);
     const mine = viewerId ? regs.find(r => r.user_id === viewerId && ['held', 'confirmed', 'refund_pending'].includes(r.status)) : null;
     json.myStatus = mine ? (mine.status === 'held' && !ACTIVE_HOLD(mine) ? null : mine.status) : null;
+    // Your own unfinished payment, so the app can reopen the same page.
+    if (mine && json.myStatus === 'held' && mine.checkout_url) json.myHold = { checkoutUrl: mine.checkout_url, holdExpiresAt: mine.hold_expires_at };
     if (req.authUser) {
       const blocked = await idsBlockedBy(req.authUser.id);
       json.attendees = regs
@@ -213,7 +216,7 @@ function registerEventRoutes(app, deps) {
     const date = String(body.date || '');
     const time = String(body.time || '');
     const timeZone = String(body.timeZone || '');
-    const priceCents = Math.round(Number(body.priceCents));
+    const priceColones = Math.round(Number(body.priceColones));
     const maxPlayers = Math.round(Number(body.maxPlayers));
     const cancelCutoffHours = Math.round(Number(body.cancelCutoffHours ?? 48));
     const description = String(body.description || '').trim();
@@ -221,13 +224,13 @@ function registerEventRoutes(app, deps) {
     if (!course || course.length > 200) return { error: 'Course is required' };
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) return { error: 'Pick a date and a time' };
     if (!isValidTimeZone(timeZone)) return { error: 'Pick the course time zone' };
-    if (!Number.isFinite(priceCents) || priceCents < 50 || priceCents > 100000) return { error: 'Price must be between $0.50 and $1,000' };
+    if (!Number.isFinite(priceColones) || priceColones < 500 || priceColones > 2000000) return { error: 'Price must be between ₡500 and ₡2,000,000' };
     if (!Number.isFinite(maxPlayers) || maxPlayers < 1 || maxPlayers > 500) return { error: 'Max players must be between 1 and 500' };
     if (!Number.isFinite(cancelCutoffHours) || cancelCutoffHours < 0 || cancelCutoffHours > 720) return { error: 'Cancellation cutoff must be 0–720 hours' };
     if (description.length > 2000) return { error: 'Description is too long (2,000 characters max)' };
     const startsAt = localToInstant(date, time, timeZone);
     if (!(startsAt > new Date())) return { error: 'The start time has to be in the future' };
-    return { value: { title, course, starts_at: startsAt.toISOString(), time_zone: timeZone, price_cents: priceCents, max_players: maxPlayers, cancel_cutoff_hours: cancelCutoffHours, description } };
+    return { value: { title, course, starts_at: startsAt.toISOString(), time_zone: timeZone, price_colones: priceColones, max_players: maxPlayers, cancel_cutoff_hours: cancelCutoffHours, description } };
   }
 
   app.get('/api/admin/events', ah(async (req, res) => {
@@ -264,7 +267,7 @@ function registerEventRoutes(app, deps) {
     const regs = (await registrationsFor([existing.id])).get(existing.id);
     const taken = regs.filter(r => r.status === 'confirmed' || ACTIVE_HOLD(r)).length;
     const anyPaid = regs.some(r => ['confirmed', 'refund_pending', 'refunded'].includes(r.status) || ACTIVE_HOLD(r));
-    if (anyPaid && parsed.value.price_cents !== existing.price_cents) {
+    if (anyPaid && parsed.value.price_colones !== existing.price_colones) {
       return res.status(400).json({ error: 'People have already paid, so the price can’t change. Cancel and re-create the event instead.' });
     }
     if (parsed.value.max_players < taken) {
@@ -290,6 +293,9 @@ function registerEventRoutes(app, deps) {
     if (loadError) return res.status(500).json({ error: 'Could not load event' });
     if (!existing) return res.status(404).json({ error: 'Event not found' });
     if (existing.status === 'cancelled') return res.json({ ok: true });
+    // Until cancelling also refunds everyone (part E), don't strand payments.
+    const paid = ((await registrationsFor([existing.id])).get(existing.id) || []).filter(r => r.status === 'confirmed').length;
+    if (paid > 0) return res.status(409).json({ error: `${paid} ${paid === 1 ? 'person has' : 'people have'} paid. Cancelling with automatic refunds is coming in the next update.` });
     const { error } = await supabase.from('events')
       .update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('id', existing.id);
     if (error) return res.status(500).json({ error: 'Could not cancel the event' });

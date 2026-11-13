@@ -12,7 +12,7 @@ create table if not exists events (
   course text not null,                                  -- course name, e.g. 'Bethpage Black Golf Course'
   starts_at timestamptz not null,                        -- e.g. '2026-11-22 08:00:00-05' (include the UTC offset)
   time_zone text not null default 'America/New_York',    -- where the course is, e.g. 'America/Chicago'
-  price_cents integer not null check (price_cents >= 50),-- in cents: $45.00 = 4500 (Stripe's minimum is 50)
+  price_cents integer not null check (price_cents >= 50),-- renamed to price_colones by supabase-event-payments.sql
   max_players integer not null check (max_players between 1 and 500),
   -- Optional (defaults are fine):
   description text not null default '',
@@ -33,7 +33,7 @@ create table if not exists event_registrations (
   event_id bigint not null references events (id),
   user_id text not null,
   user_name text not null,
-  -- held: spot reserved while paying; confirmed: Stripe confirmed payment;
+  -- held: spot reserved while paying; confirmed: ONVO confirmed payment;
   -- expired/failed: hold released; cancelled/refund_pending/refunded: undone.
   status text not null check (status in ('held', 'confirmed', 'expired', 'failed', 'cancelled', 'refund_pending', 'refunded')),
   hold_expires_at timestamptz,

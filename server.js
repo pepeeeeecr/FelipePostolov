@@ -1,7 +1,7 @@
 // Foursome backend — the single source of truth for profiles, tee times,
 // messages and course search. Also serves the app itself as a website
-// (see /public/index.html). Stripe is set up (client + signed webhook) for
-// paid events, which aren't built yet.
+// (see /public/index.html). Paid events take payments through ONVO Pay
+// (eventPayments.js, onvo.js).
 
 require('dotenv').config();
 const express = require('express');
@@ -9,20 +9,14 @@ const cors = require('cors');
 const path = require('path');
 const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
-const Stripe = require('stripe');
 const webpush = require('web-push');
 const { moderateFields } = require('./moderation');
-const { registerEventRoutes } = require('./events');
+const { registerEventRoutes, isEventAdmin } = require('./events');
+const { makePayments } = require('./eventPayments');
 const legal = require('./legalContent');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-
-const stripeConfigured = !!process.env.STRIPE_SECRET_KEY;
-const stripe = stripeConfigured ? Stripe(process.env.STRIPE_SECRET_KEY) : null;
-if (!stripeConfigured) {
-  console.warn('STRIPE_SECRET_KEY not set — the Stripe webhook is disabled until STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET are configured.');
-}
 
 // Web push (VAPID) needs our own keys; Expo's push service doesn't — any
 // server can POST a notification for a valid Expo push token with no setup,
@@ -588,31 +582,17 @@ function resolveUserId(req, bodyUserId) {
   return req.authUser ? req.authUser.id : bodyUserId;
 }
 
+// Paid-event payments (ONVO). Built here, near the top, because its
+// webhook route has to be registered before the JSON body parser.
+const eventPayments = makePayments({ supabase, ah, getUser, isBanned, BANNED_ERROR, isEventAdmin });
+
 // --- Middleware ---------------------------------------------------------
 app.use(cors()); // relax to your real domain before a public launch
 app.use(attachAuthUser);
 
-// Stripe webhook needs the raw body for signature verification, so it's
-// registered before the global JSON parser. Kept (with no handlers yet) for
-// paid events.
-app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), ah(async (req, res) => {
-  if (!stripeConfigured || !process.env.STRIPE_WEBHOOK_SECRET) {
-    return res.status(503).json({ error: 'Stripe is not configured on this server yet' });
-  }
-  const sig = req.headers['stripe-signature'];
-  let event;
-  try {
-    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
-  } catch (err) {
-    console.error('Webhook signature verification failed:', err.message);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
-  }
-
-  // Nothing is handled yet — paid events will act on payment events here.
-  console.log('Stripe webhook received:', event.type);
-
-  res.json({ received: true });
-}));
+// ONVO's webhook needs the raw body for its signature check, so it's
+// registered before the global JSON parser (see eventPayments.js).
+eventPayments.registerWebhook(app);
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -1745,6 +1725,9 @@ registerEventRoutes(app, {
   supabase, ah, verifiedUserId, geocodeCourse, haversineMiles, idsBlockedBy,
   isBanned, BANNED_ERROR, moderateFields, getUser, sendAdminEmail,
 });
+eventPayments.registerRoutes(app);
+// Release spots whose 20-minute hold ran out, every minute.
+setInterval(() => { eventPayments.sweepExpiredHolds().catch(e => console.error('Hold sweep error:', e.message)); }, 60 * 1000);
 
 // Final error handler — catches anything ah() forwarded (e.g. a Supabase
 // query error) so it becomes a normal 500 response instead of crashing
