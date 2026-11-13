@@ -11,8 +11,9 @@ const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
 const webpush = require('web-push');
 const { moderateFields } = require('./moderation');
-const { registerEventRoutes, isEventAdmin } = require('./events');
+const { registerEventRoutes, isEventAdmin, eventJson } = require('./events');
 const { makePayments } = require('./eventPayments');
+const { registerSharePages } = require('./sharePages');
 const legal = require('./legalContent');
 
 const app = express();
@@ -1735,6 +1736,7 @@ registerEventRoutes(app, {
   isBanned, BANNED_ERROR, moderateFields, getUser, sendAdminEmail,
 });
 eventPayments.registerRoutes(app);
+registerSharePages(app, { supabase, ah, DEMO_USER_IDS, eventJson });
 // Release spots whose 20-minute hold ran out, every minute.
 setInterval(() => { eventPayments.sweepExpiredHolds().catch(e => console.error('Hold sweep error:', e.message)); }, 60 * 1000);
 

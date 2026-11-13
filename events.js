@@ -52,8 +52,9 @@ function localParts(date, tz) {
   return { localDate: `${get('year')}-${get('month')}-${get('day')}`, localTime: `${get('hour')}:${get('minute')}` };
 }
 
-function whenLabel(date, tz) {
-  return new Intl.DateTimeFormat('en-US', {
+// lang 'es' gives Costa Rican Spanish, e.g. "sáb, 22 nov, 8:00 a. m. CST".
+function whenLabel(date, tz, lang = 'en') {
+  return new Intl.DateTimeFormat(lang === 'es' ? 'es-CR' : 'en-US', {
     timeZone: tz, weekday: 'short', month: 'short', day: 'numeric',
     hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
   }).format(date);
