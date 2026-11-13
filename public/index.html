@@ -136,7 +136,12 @@ const state = {
   filters: { pace: '', maxDistance: '', courseSearch: '', dateFilter: '', maxHandicapDiff: '' },
   distanceUnit: loadDistanceUnit(),  // 'km' (default) | 'mi', remembered in this browser
   discoverSearchFocused: false,
+  // Only ever a live fix from this visit — never saved, so it can't go
+  // stale when the user travels.
   myLocation: null,
+  // 'checking' until the first fix attempt finishes, then 'live', 'denied'
+  // (no permission) or 'unavailable' (no fix could be had).
+  locationStatus: 'checking',
   chatTeetimeId: null,
   chatCourseName: '',
   chatMessages: [],
@@ -368,31 +373,62 @@ function toMiles(value){
   return state.distanceUnit === 'mi' ? value : value / KM_PER_MILE;
 }
 
-function loadCachedLocation(){
-  try{
-    return JSON.parse(localStorage.getItem('foursome_myLocation') || 'null');
-  }catch(e){ return null; }
+// ~100 m buckets: small GPS jitter doesn't refetch courses, moving does.
+function locationKey(loc){
+  return loc.lat.toFixed(3) + ',' + loc.lng.toFixed(3);
 }
 
-function requestLocation(){
+// Gets a fresh fix (maximumAge: 0, so never a cached position from another
+// city). With prompt false it never triggers the browser's permission
+// prompt — it only runs if permission was already granted. Resolves to the
+// new location, or null when there's no permission or no fix; either way
+// the old location is dropped rather than kept as if it were current.
+let locationSeq = 0;
+async function refreshLocation({ prompt = false } = {}){
+  const seq = ++locationSeq;
+  const before = state.myLocation ? locationKey(state.myLocation) : null;
+  const settle = (loc, status) => {
+    if(seq !== locationSeq) return loc;
+    state.myLocation = loc;
+    state.locationStatus = status;
+    const after = loc ? locationKey(loc) : null;
+    // A new place (or losing location) means a different course list.
+    if(after !== before && state.tab === 'book') refreshBookCourses();
+    render();
+    return loc;
+  };
+  if(!navigator.geolocation) return settle(null, 'unavailable');
+  if(!prompt){
+    let granted = false;
+    try{
+      const perm = await navigator.permissions.query({ name: 'geolocation' });
+      granted = perm.state === 'granted';
+    }catch(e){ /* no Permissions API: don't risk an unasked prompt */ }
+    if(!granted) return settle(null, 'denied');
+  }
+  return new Promise(resolve => {
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve(settle({ lat: pos.coords.latitude, lng: pos.coords.longitude }, 'live')),
+      err => {
+        console.warn('Location failed:', err.message);
+        resolve(settle(null, err.code === 1 ? 'denied' : 'unavailable'));
+      },
+      { maximumAge: 0, timeout: 15000 }
+    );
+  });
+}
+
+// The "Use my location" / "Turn on location" buttons: the one place that
+// may ask for permission.
+async function requestLocation(){
   if(!navigator.geolocation){
     showToast('Location is not supported on this device');
     return;
   }
-  navigator.geolocation.getCurrentPosition(
-    pos => {
-      state.myLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-      localStorage.setItem('foursome_myLocation', JSON.stringify(state.myLocation));
-      showToast('Location set — showing distances now');
-      if(state.tab === 'book') refreshBookCourses();
-      render();
-    },
-    err => {
-      showToast(err.code === 1 ? 'Location is off. You can still search for a course by name.' : "Couldn't get your location. You can still search for a course by name.");
-      console.warn('Location failed:', err.message);
-    },
-    { timeout: 8000 }
-  );
+  const loc = await refreshLocation({ prompt: true });
+  if(loc) showToast('Location set — showing distances now');
+  else if(state.locationStatus === 'denied') showToast("Location is off. Allow it for this site in your browser's settings, or search for a course by name.");
+  else showToast("Couldn't get your location. You can still search for a course by name.");
 }
 
 // This is now a real website, so real localStorage works (the earlier
@@ -685,7 +721,10 @@ async function init(){
   const splashStart = Date.now();
   const minSplashMs = 1500; // keep the branded splash visible at least this long
   try{
-    state.myLocation = loadCachedLocation();
+    // Older versions saved the last location here and reused it on every
+    // visit; drop it so nothing can read it again.
+    try{ localStorage.removeItem('foursome_myLocation'); }catch(e){ /* nothing to clear */ }
+    refreshLocation();
     state.profileList = loadProfileList();
 
     const { data: sessionData } = await sbAuth.auth.getSession();
@@ -2299,6 +2338,10 @@ function attachMyRoundsHandlers(){
 // Bumped on every new course load, so a slower earlier request (or a poll
 // below) can tell its results are no longer wanted.
 let bookSeq = 0;
+// What the list on screen was loaded for ("near:<lat,lng>" rounded to
+// ~100 m, "home:<name>" or "search:<term>"). A nearby load for the same key
+// reuses the list; a different key — i.e. the user moved — refetches.
+let bookKey = null;
 
 // The server can answer nearby before its full course list has arrived
 // (complete: false). Ask again every 15 seconds, for up to four minutes,
@@ -2323,15 +2366,24 @@ function pollNearbyUntilComplete(path, seq){
 
 // Network trouble with course search is expected now and then, so it's
 // logged as a warning rather than an error.
-async function loadNearbyBookCourses(){
+// Always sends the current live coordinates — never a location from the
+// profile.
+async function loadNearbyBookCourses({ force = false } = {}){
+  const loc = state.myLocation;
+  if(!loc){ bookSeq++; bookKey = null; state.bookCourses = []; render(); return; }
+  const key = 'near:' + locationKey(loc);
+  if(!force && key === bookKey) return;
   const seq = ++bookSeq;
-  if(!state.myLocation){ state.bookCourses = []; render(); return; }
+  // A list for somewhere else shouldn't linger while the new one loads.
+  if(bookKey !== key) state.bookCourses = [];
+  bookKey = null;
   state.bookLoading = true; state.bookError = ''; state.bookNearHome = null; render();
   try{
-    const path = '/api/golf-courses/nearby?lat=' + state.myLocation.lat + '&lng=' + state.myLocation.lng;
+    const path = '/api/golf-courses/nearby?lat=' + loc.lat + '&lng=' + loc.lng;
     const data = await apiGet(path);
     if(seq !== bookSeq) return;
     state.bookCourses = data.courses || [];
+    bookKey = key;
     if(!data.complete) pollNearbyUntilComplete(path, seq);
   }catch(e){
     if(seq !== bookSeq) return;
@@ -2345,11 +2397,13 @@ async function loadNearbyBookCourses(){
 
 async function searchBookCourses(term){
   const seq = ++bookSeq;
+  bookKey = null;
   state.bookLoading = true; state.bookError = ''; state.bookNearHome = null; render();
   try{
     const data = await apiGet('/api/golf-courses/search?q=' + encodeURIComponent(term));
     if(seq !== bookSeq) return;
     state.bookCourses = data.courses || [];
+    bookKey = 'search:' + term.toLowerCase();
   }catch(e){
     if(seq !== bookSeq) return;
     state.bookError = "Couldn't search courses right now. Try again in a minute.";
@@ -2360,11 +2414,14 @@ async function searchBookCourses(term){
   render();
 }
 
-// With location off, show courses around the user's home course instead
-// of an empty screen. If the home course can't be found, this quietly
-// leaves the list empty so the screen falls back to the location prompt.
+// Only for when location permission is denied or no fix is available:
+// show courses around the user's home course instead of an empty screen.
+// Never used while a live location exists. If the home course can't be
+// found, this quietly leaves the list empty so the screen falls back to
+// the location prompt.
 async function loadCoursesNearHomeCourse(){
   const seq = ++bookSeq;
+  bookKey = null;
   const home = state.profile && state.profile.homeCourse ? state.profile.homeCourse.trim() : '';
   state.bookError = ''; state.bookNearHome = null;
   if(home.length < 3){ state.bookCourses = []; render(); return; }
@@ -2388,6 +2445,7 @@ async function loadCoursesNearHomeCourse(){
       if(seq !== bookSeq) return;
       state.bookCourses = courses;
       state.bookNearHome = { name: anchor.name, lat: anchor.lat, lng: anchor.lng };
+      bookKey = 'home:' + home.toLowerCase();
     }
   }catch(e){
     state.bookCourses = [];
@@ -2401,15 +2459,28 @@ async function loadCoursesNearHomeCourse(){
 // search text and location — the single place that owns that decision, so
 // it can be called from tab-entry, from the debounced search box, and
 // after "Use my location" succeeds, without duplicating the logic.
-async function refreshBookCourses(){
+// A search term always wins. With no term: courses near the live location;
+// only if location is denied or unavailable, courses around the home
+// course. While the first fix is still coming, wait for it rather than
+// flashing the home-course list.
+async function refreshBookCourses({ force = false } = {}){
   const term = state.bookSearch.trim();
   if(term.length >= 3){
     await searchBookCourses(term);
   } else if(state.myLocation){
-    await loadNearbyBookCourses();
-  } else {
+    await loadNearbyBookCourses({ force });
+  } else if(state.locationStatus === 'denied' || state.locationStatus === 'unavailable'){
     await loadCoursesNearHomeCourse();
+  } else {
+    render();
   }
+}
+
+// The "Refresh" link on Courses (the website's pull-to-refresh): a fresh
+// location first, then the list for it.
+async function refreshCoursesAndLocation(){
+  await refreshLocation();
+  await refreshBookCourses({ force: true });
 }
 
 function renderBook(){
@@ -2427,7 +2498,10 @@ function renderBook(){
     );
   }
   let body;
-  if(state.bookLoading){
+  const locationOff = state.locationStatus === 'denied' || state.locationStatus === 'unavailable';
+  if(!term && !state.myLocation && state.locationStatus === 'checking'){
+    body = '<div class="loading">Finding your location…</div>';
+  } else if(state.bookLoading){
     body = '<div class="loading">Searching courses…</div>';
   } else if(state.bookError){
     body = `<div class="empty">${escapeHtml(state.bookError)}</div>`;
@@ -2443,10 +2517,10 @@ function renderBook(){
       body = `<div class="empty">${term ? 'No courses match your search.' : 'No courses found nearby — try searching by name.'}</div>`;
     }
   } else {
-    const nearHomeBanner = (!term && !state.myLocation && state.bookNearHome) ? `
+    const nearHomeBanner = (!term && !state.myLocation && locationOff && state.bookNearHome) ? `
       <div class="card" style="padding:10px 14px; display:flex; justify-content:space-between; align-items:center; gap:8px;">
         <div class="meta" style="opacity:0.75;">Showing courses near your home course, ${escapeHtml(state.bookNearHome.name)}. Turn on location to see courses near you.</div>
-        <button class="btn btn-primary" id="book-use-location-btn" style="flex:none; padding:6px 12px; font-size:12px;">Use my location</button>
+        <button class="btn btn-primary" id="book-use-location-btn" style="flex:none; padding:6px 12px; font-size:12px;">Turn on location</button>
       </div>
     ` : '';
     body = nearHomeBanner + courses.map(c => {
@@ -2473,7 +2547,7 @@ function renderBook(){
 
   return `
     <h1 class="screen-title">Find a course</h1>
-    <div class="meta" style="margin:-8px 0 14px;">Search for a course or see what's nearby.</div>
+    <div class="meta" style="margin:-8px 0 14px;">Search for a course or see what's nearby. <span id="book-refresh" role="button" tabindex="0" style="text-decoration:underline; cursor:pointer;">Refresh</span></div>
     <input id="book-search" placeholder="Search courses by name..." aria-label="Search courses by name" value="${escapeHtml(state.bookSearch)}" style="margin-bottom:12px;" />
     ${body}
   `;
@@ -2597,6 +2671,8 @@ function attachBookHandlers(){
   });
   const locationBtn = document.getElementById('book-use-location-btn');
   if(locationBtn) locationBtn.addEventListener('click', requestLocation);
+  const refreshBtn = document.getElementById('book-refresh');
+  if(refreshBtn) refreshBtn.addEventListener('click', refreshCoursesAndLocation);
 }
 
 function renderProfile(){
@@ -2709,6 +2785,12 @@ function attachProfileHandlers(){
 }
 
 init();
+
+// Fresh location every time the tab comes back into view — the website's
+// equivalent of the app returning to the foreground.
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'visible') refreshLocation();
+});
 </script>
 </body>
 </html>
