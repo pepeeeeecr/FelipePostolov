@@ -333,6 +333,29 @@ function isParticipant(teetimeRow, userId) {
 // (.eq/.in) rather than building a filter string with ids interpolated into
 // it, which would otherwise be an injection vector into PostgREST's filter
 // syntax.
+// Only the people this user chose to block (one direction), e.g. to hide
+// their chat messages from the blocker.
+async function idsBlockedBy(userId) {
+  const { data, error } = await supabase.from('blocks').select('blocked_id').eq('blocker_id', userId);
+  if (error) throw error;
+  return new Set((data || []).map(r => r.blocked_id));
+}
+
+// Round chat as one viewer sees it: messages from anyone they've blocked
+// are left out.
+async function chatMessagesFor(teetimeId, viewerId) {
+  const [{ data: messages, error }, blocked] = await Promise.all([
+    supabase
+      .from('messages')
+      .select('id, senderId:sender_id, senderName:sender_name, text, createdAt:created_at')
+      .eq('teetime_id', teetimeId)
+      .order('created_at', { ascending: true }),
+    idsBlockedBy(viewerId),
+  ]);
+  if (error) throw error;
+  return (messages || []).filter(m => !blocked.has(m.senderId));
+}
+
 async function getBlockedUserIds(userId) {
   const [{ data: asBlocker, error: e1 }, { data: asBlocked, error: e2 }] = await Promise.all([
     supabase.from('blocks').select('blocked_id').eq('blocker_id', userId),
@@ -928,12 +951,13 @@ app.get('/api/teetimes/:id/messages', ah(async (req, res) => {
   if (!isParticipant(row, userId)) {
     return res.status(403).json({ error: 'Not authorized for this chat' });
   }
-  const { data: messages, error: msgError } = await supabase
-    .from('messages')
-    .select('id, senderId:sender_id, senderName:sender_name, text, createdAt:created_at')
-    .eq('teetime_id', req.params.id)
-    .order('created_at', { ascending: true });
-  if (msgError) return res.status(500).json({ error: 'Could not load messages' });
+  let messages;
+  try {
+    messages = await chatMessagesFor(req.params.id, userId);
+  } catch (e) {
+    console.error('Failed to load messages:', e.message);
+    return res.status(500).json({ error: 'Could not load messages' });
+  }
   res.json(messages);
 }));
 
@@ -961,16 +985,21 @@ app.post('/api/teetimes/:id/messages', ah(async (req, res) => {
   if (row.host_id !== userId) recipientIds.add(row.host_id);
   requests.forEach(r => { if (r.status === 'approved' && r.userId !== userId) recipientIds.add(r.userId); });
   const preview = text.trim().slice(0, 60);
+  // Nobody gets a push for a message from someone they've blocked.
+  const { data: blockers } = await supabase.from('blocks').select('blocker_id').eq('blocked_id', userId);
+  const blockedMe = new Set((blockers || []).map(b => b.blocker_id));
   recipientIds.forEach(rid => {
+    if (blockedMe.has(rid)) return;
     notifyUser(rid, `${name} · ${row.course}`, preview).catch(() => {});
   });
 
-  const { data: messages, error: msgError } = await supabase
-    .from('messages')
-    .select('id, senderId:sender_id, senderName:sender_name, text, createdAt:created_at')
-    .eq('teetime_id', req.params.id)
-    .order('created_at', { ascending: true });
-  if (msgError) return res.status(500).json({ error: 'Could not load messages' });
+  let messages;
+  try {
+    messages = await chatMessagesFor(req.params.id, userId);
+  } catch (e) {
+    console.error('Failed to load messages:', e.message);
+    return res.status(500).json({ error: 'Could not load messages' });
+  }
   res.json(messages);
 }));
 
