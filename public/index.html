@@ -368,6 +368,14 @@ function setDistanceUnit(unit){
   render();
 }
 
+// Town and country under a course name ("Santa Ana, Costa Rica"); the short
+// form on narrow screens, nothing when the server doesn't know it yet.
+function placeLine(item){
+  const pick = v => (typeof v === 'string' && v.trim()) ? v.trim() : '';
+  const text = window.innerWidth < 400 ? (pick(item && item.place) || pick(item && item.placeFull)) : (pick(item && item.placeFull) || pick(item && item.place));
+  return text ? `<div class="meta" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(text)}</div>` : '';
+}
+
 function formatDistance(miles){
   const unit = state.distanceUnit;
   const value = unit === 'mi' ? miles : miles * KM_PER_MILE;
@@ -2116,6 +2124,7 @@ function renderDiscover(){
             <div class="course-name">${escapeHtml(t.course)}</div>
             <div class="hcp">${escapeHtml(t.hcpRange || 'Any HCP')}</div>
           </div>
+          ${placeLine(t)}
           <div class="meta">${escapeHtml(t.date)} · ${escapeHtml(t.time)} · ${t.openSpots} of ${t.totalSpots} spots open</div>
           ${distanceLine}
           <div class="meta">Hosted by <span data-view-user="${t.hostId}" style="text-decoration:underline; cursor:pointer;">${escapeHtml(t.hostName)}</span>${ratingBadge}${t.pace ? ' · ' + escapeHtml(t.pace) + ' pace' : ''}</div>
@@ -2245,6 +2254,7 @@ function renderMyRounds(){
           <div class="course-name">${escapeHtml(t.course)}</div>
           <div class="hcp">${t.openSpots}/${t.totalSpots} open</div>
         </div>
+        ${placeLine(t)}
         <div class="meta">${escapeHtml(t.date)} · ${escapeHtml(t.time)}</div>
         <div class="row">
           <button class="btn btn-ghost" style="padding:7px 10px; font-size:12px;" data-chat-open="${t.id}">Chat</button>
@@ -2292,6 +2302,7 @@ function renderMyRounds(){
             <div class="course-name">${escapeHtml(t.course)}</div>
             <span class="status-tag status-${myReq.status}">${myReq.status}</span>
           </div>
+          ${placeLine(t)}
           <div class="meta">${escapeHtml(t.date)} · ${escapeHtml(t.time)} · hosted by <span data-view-user="${t.hostId}" style="text-decoration:underline; cursor:pointer;">${escapeHtml(t.hostName)}</span></div>
           ${myReq.status === 'pending' ? `<div class="row"><button class="btn btn-deny" style="padding:7px 10px; font-size:12px;" data-withdraw="${t.id}">Withdraw request</button></div>` : ''}
           ${myReq.status === 'approved' ? `<div class="row"><button class="btn btn-ghost" style="padding:7px 10px; font-size:12px;" data-chat-open="${t.id}">Chat</button></div>` : ''}
@@ -2546,6 +2557,7 @@ function renderBook(){
             <span class="course-name">${escapeHtml(c.name)}</span>
             ${FEATURES.courseReviews ? '<span style="opacity:0.68;">›</span>' : ''}
           </div>
+          ${placeLine(c)}
           ${ratingLine}
           ${distanceLine}
         </div>
@@ -2740,7 +2752,7 @@ function renderProfile(){
         <div class="course-name" style="margin-bottom:8px;">Recent rounds</div>
         ${roundsHistory.slice(0,5).map(t => `
           <div class="request-row">
-            <span>${escapeHtml(t.course)} · ${escapeHtml(t.date)}</span>
+            <span>${escapeHtml(t.course)} · ${escapeHtml(t.date)}${placeLine(t)}</span>
             <span class="pill" style="font-size:10px;">${t.hostId === state.myUserId ? 'Hosted' : 'Played'}</span>
           </div>
         `).join('')}

@@ -133,6 +133,24 @@ function makeCrCourses({ supabase, haversineMiles, overpassQuery, overpassServer
       .sort((a, b) => a.distanceMiles - b.distanceMiles);
   }
 
+  // Our course with exactly this name (accents and case ignored), if any.
+  function byName(name) {
+    if (!ready) return null;
+    const f = fold(name).trim();
+    return courses.find(c => fold(c.name) === f) || null;
+  }
+
+  // The course from our list at (or within maxMiles of) this point, if any.
+  function nearest(lat, lng, maxMiles) {
+    if (!ready || !inCostaRica(lat, lng)) return null;
+    let best = null, bestD = Infinity;
+    for (const c of courses) {
+      const d = haversineMiles(lat, lng, c.lat, c.lng);
+      if (d < bestD) { best = c; bestD = d; }
+    }
+    return bestD <= maxMiles ? best : null;
+  }
+
   // Costa Rica courses whose name (or town) contains the search term.
   function search(term) {
     if (!ready) return [];
@@ -160,7 +178,7 @@ function makeCrCourses({ supabase, haversineMiles, overpassQuery, overpassServer
     return [...ours, ...rest];
   }
 
-  return { start, nearby, search, mergeSearch, inCostaRica, isReady: () => ready, count: () => courses.length };
+  return { start, nearby, nearest, byName, search, mergeSearch, inCostaRica, isReady: () => ready, count: () => courses.length };
 }
 
 module.exports = { makeCrCourses, inCostaRica };

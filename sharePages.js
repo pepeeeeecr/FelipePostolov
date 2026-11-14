@@ -11,6 +11,7 @@ const APP_STORE_URL = 'https://apps.apple.com/app/id6831230794';
 const APPLE_APP_ID = 'C8S8FTV64A.com.felipepostolov.foursome'; // Team ID + bundle ID
 
 const { pickLang } = require('./i18n');
+const places = require('./places');
 
 const T = {
   es: {
@@ -72,7 +73,9 @@ function registerSharePages(app, { supabase, ah, DEMO_USER_IDS, eventJson }) {
     if (!row || row.status === 'cancelled' || DEMO_USER_IDS.has(row.host_id)) {
       return res.status(404).send(page(lang, { title: 'Foursome', lines: [t.gone], appLink: null }));
     }
+    const where = places.fields(row.lat, row.lng, lang).placeFull;
     const lines = [
+      where || null,
       `${row.date} · ${row.time}`,
       row.open_spots > 0 ? t.spots(row.open_spots) : t.full,
       row.hcp_range ? `${t.hcp}: ${row.hcp_range}` : null,
@@ -91,9 +94,9 @@ function registerSharePages(app, { supabase, ah, DEMO_USER_IDS, eventJson }) {
     }
     const { data: regs } = await supabase.from('event_registrations')
       .select('event_id, user_id, user_name, status, hold_expires_at, checkout_url, created_at').eq('event_id', row.id);
-    const ev = eventJson(row, regs || []);
+    const ev = eventJson(row, regs || [], { lang });
     const lines = [
-      row.course,
+      ev.placeFull ? `${row.course} · ${ev.placeFull}` : row.course,
       whenLabel(new Date(row.starts_at), row.time_zone, lang),
       `${t.price}: ${colones(row.price_colones)}`,
       ev.spotsLeft > 0 ? t.spots(ev.spotsLeft) : t.full,

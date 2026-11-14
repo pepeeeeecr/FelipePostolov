@@ -14,7 +14,8 @@ const { moderateFields } = require('./moderation');
 const { registerEventRoutes, isEventAdmin, eventJson } = require('./events');
 const { makePayments } = require('./eventPayments');
 const { registerSharePages } = require('./sharePages');
-const { translateErrors, push } = require('./i18n');
+const { translateErrors, push, pickLang } = require('./i18n');
+const places = require('./places');
 const legalEs = require('./legalContent.es');
 const { makeCrCourses } = require('./crCourses');
 const legal = require('./legalContent');
@@ -73,7 +74,8 @@ function teetimeRowToJson(row) {
     notes: row.notes,
     status: row.status || 'active',
     requests: row.requests || [],
-    createdAt: row.created_at
+    createdAt: row.created_at,
+    ...places.fields(row.lat, row.lng),
   };
 }
 
@@ -495,7 +497,17 @@ async function getPlayedTogetherCount(userA, userB) {
 // Free geocoding via OpenStreetMap's Nominatim — no API key needed. Goes
 // through nominatimFetch (below) so it shares the same User-Agent and
 // one-request-per-second limit as course search.
-async function geocodeCourse(courseName) {
+// When the app's course suggestions were used, it sends the picked course's
+// coordinates (courseLat/courseLng) and those are used as they are. A name
+// that's exactly one of our Costa Rica courses uses our coordinates.
+async function geocodeCourse(courseName, body) {
+  const lat = body ? Number(body.courseLat) : NaN;
+  const lng = body ? Number(body.courseLng) : NaN;
+  if (Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && !(lat === 0 && lng === 0)) {
+    return { lat, lng };
+  }
+  const ours = crCourses.byName(courseName);
+  if (ours) return { lat: ours.lat, lng: ours.lng };
   try {
     const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' +
       encodeURIComponent(courseName + ' golf course');
@@ -597,6 +609,7 @@ const eventPayments = makePayments({ supabase, ah, getUser, isBanned, BANNED_ERR
 
 // --- Middleware ---------------------------------------------------------
 app.use(cors()); // relax to your real domain before a public launch
+app.use(places.languageMiddleware(pickLang));
 app.use(attachAuthUser);
 app.use(translateErrors);
 
@@ -815,7 +828,7 @@ app.post('/api/teetimes', ah(async (req, res) => {
   if (await isBanned(hostId)) return res.status(403).json(BANNED_ERROR);
 
   const id = 'tt_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-  const geo = await geocodeCourse(course); // null if not found — round still posts, just without distance
+  const geo = await geocodeCourse(course, req.body); // null if not found — round still posts, just without distance
   const { data: row, error } = await supabase.from('teetimes').insert({
     id,
     host_id: hostId,
@@ -1397,7 +1410,7 @@ function setCachedOsm(key, data) {
 async function loadSavedCourseSearches() {
   const since = new Date(Date.now() - OSM_CACHE_STALE_MS).toISOString();
   const { data, error } = await supabase.from('course_search_cache')
-    .select('key, data, updated_at').gte('updated_at', since).order('updated_at', { ascending: true }).limit(OSM_CACHE_MAX);
+    .select('key, data, updated_at').not('key', 'like', 'place:%').gte('updated_at', since).order('updated_at', { ascending: true }).limit(OSM_CACHE_MAX);
   if (error) { console.warn('Saved course searches unavailable:', error.message); return; }
   for (const row of data || []) osmCache.set(row.key, { at: new Date(row.updated_at).getTime(), data: row.data });
   console.log(`Course searches: ${(data || []).length} restored from the database.`);
@@ -1718,7 +1731,7 @@ async function searchFromNominatim(term) {
 // cached course lists stay reusable while ratings are always read fresh.
 async function enrichCoursesWithRatings(courses) {
   const summaries = await getCourseRatingSummaries(courses.map(c => c.name));
-  return courses.map(c => ({ ...c, ...summaries.get(c.name) }));
+  return courses.map(c => ({ ...c, ...summaries.get(c.name), ...places.fields(c.lat, c.lng) }));
 }
 
 const COURSE_SEARCH_UNAVAILABLE = "Course search isn't responding right now. Try again in a minute, or search by course name.";
@@ -1805,6 +1818,7 @@ app.use((err, req, res, next) => {
 // Costa Rica's courses (see crCourses.js) and saved course searches.
 const crCourses = makeCrCourses({ supabase, haversineMiles, overpassQuery, overpassServers: OVERPASS_SERVERS });
 crCourses.start();
+places.init({ supabase, nominatimFetch, crCourses }).catch(e => console.warn('Course places failed to load:', e.message));
 loadSavedCourseSearches().catch(e => console.warn('Saved course searches failed to load:', e.message));
 
 app.listen(PORT, () => {

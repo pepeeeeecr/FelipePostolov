@@ -5,6 +5,8 @@
 // Only these signed-in accounts (with a confirmed email) can create, edit
 // and cancel events. Set EVENT_ADMIN_EMAILS on the server (comma-separated)
 // to change it without a code change.
+const places = require('./places');
+
 const EVENT_ADMIN_EMAILS = new Set(
   (process.env.EVENT_ADMIN_EMAILS || 'foursomeapp.golf@gmail.com')
     .split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
@@ -87,6 +89,7 @@ function eventJson(row, regs, { haversineMiles, lat, lng, lang = 'en' } = {}) {
     isPast: start <= new Date(),
     goingCount: confirmed.length,
     spotsLeft: Math.max(0, row.max_players - confirmed.length - held.length),
+    ...places.fields(row.lat, row.lng, lang),
   };
   if (haversineMiles && lat != null && lng != null && row.lat != null && row.lng != null) {
     json.distanceMiles = Math.round(haversineMiles(lat, lng, row.lat, row.lng) * 10) / 10;
@@ -246,7 +249,7 @@ function registerEventRoutes(app, deps) {
     if (!requireAdmin(req, res)) return;
     const parsed = parseEventInput(req.body);
     if (parsed.error) return res.status(400).json({ error: parsed.error });
-    const geo = await geocodeCourse(parsed.value.course);
+    const geo = await geocodeCourse(parsed.value.course, req.body);
     const { data: row, error } = await supabase.from('events').insert({
       ...parsed.value, lat: geo ? geo.lat : null, lng: geo ? geo.lng : null, created_by: req.authUser.id,
     }).select().single();
@@ -275,8 +278,8 @@ function registerEventRoutes(app, deps) {
       return res.status(400).json({ error: `${taken} spot${taken === 1 ? ' is' : 's are'} already taken, so max players can’t go below that` });
     }
     const update = { ...parsed.value, updated_at: new Date().toISOString() };
-    if (parsed.value.course !== existing.course) {
-      const geo = await geocodeCourse(parsed.value.course);
+    if (parsed.value.course !== existing.course || req.body.courseLat != null) {
+      const geo = await geocodeCourse(parsed.value.course, req.body);
       update.lat = geo ? geo.lat : null;
       update.lng = geo ? geo.lng : null;
     }
