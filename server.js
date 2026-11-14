@@ -1766,7 +1766,7 @@ app.get('/api/golf-courses/search', ah(async (req, res) => {
   // Costa Rica courses from our own list come first (some, like La Iguana,
   // aren't findable through OpenStreetMap's search at all).
   const crMatches = crCourses.search(term);
-  const withCr = list => uniqueByName([...crMatches, ...(list || [])]);
+  const withCr = list => crCourses.mergeSearch(term, list);
   const cached = getCachedOsm(cacheKey);
   if (cached) return res.json({ courses: await enrichCoursesWithRatings(withCr(cached)), source: 'cache' });
 

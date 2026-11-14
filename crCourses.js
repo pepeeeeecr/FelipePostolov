@@ -44,6 +44,19 @@ function makeCrCourses({ supabase, haversineMiles, overpassQuery, overpassServer
     console.log(`Costa Rica courses: seeded ${rows.length} courses from ${path.basename(SEED_FILE)}.`);
   }
 
+  // Hand corrections in the seed file (source: 'manual', with an osm_id) are
+  // applied to the table on every start, so a fix such as naming Valle del
+  // Sol reaches the live list with a deploy — no SQL needed.
+  async function applyManualFromSeed() {
+    const seed = JSON.parse(fs.readFileSync(SEED_FILE, 'utf8'));
+    for (const c of seed.filter(c => c.source === 'manual' && c.osm_id)) {
+      const { error } = await supabase.from('golf_courses')
+        .update({ name: c.name, lat: c.lat, lng: c.lng, town: c.town || null, province: c.province || null, source: 'manual', updated_at: new Date().toISOString() })
+        .eq('osm_id', c.osm_id);
+      if (error) throw error;
+    }
+  }
+
   async function load() {
     const { data, error } = await supabase.from('golf_courses')
       .select('name, lat, lng, town, province').eq('country', 'CR').eq('active', true);
@@ -89,6 +102,7 @@ function makeCrCourses({ supabase, haversineMiles, overpassQuery, overpassServer
   async function start() {
     try {
       await seedIfEmpty();
+      await applyManualFromSeed();
       await load();
       console.log(`Costa Rica courses: ${courses.length} loaded from the database.`);
     } catch (e) {
@@ -129,7 +143,24 @@ function makeCrCourses({ supabase, haversineMiles, overpassQuery, overpassServer
       .map(c => ({ name: c.name, lat: c.lat, lng: c.lng, town: c.town }));
   }
 
-  return { start, nearby, search, inCostaRica, isReady: () => ready, count: () => courses.length };
+  // Name search results from OpenStreetMap, merged after ours. A result
+  // sitting on one of our courses (within 1 km) is the same course under
+  // another name, so it's dropped — otherwise the list would show it twice.
+  // Results elsewhere are different courses that happen to share a name
+  // (Valle Del Sol in New Mexico) and are kept.
+  function mergeSearch(term, external) {
+    const ours = search(term);
+    const seen = new Set(ours.map(c => fold(c.name)));
+    const rest = (external || []).filter(c => {
+      if (!c || seen.has(fold(c.name))) return false;
+      if (ready && inCostaRica(c.lat, c.lng) && courses.some(k => haversineMiles(c.lat, c.lng, k.lat, k.lng) < 0.62)) return false;
+      seen.add(fold(c.name));
+      return true;
+    });
+    return [...ours, ...rest];
+  }
+
+  return { start, nearby, search, mergeSearch, inCostaRica, isReady: () => ready, count: () => courses.length };
 }
 
 module.exports = { makeCrCourses, inCostaRica };

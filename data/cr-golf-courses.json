@@ -99,7 +99,7 @@
     "source": "osm"
   },
   {
-    "name": "Campo de Golf Santa Ana",
+    "name": "Valle del Sol (Santa Ana)",
     "lat": 9.948599,
     "lng": -84.212417,
     "town": "Pozos",
@@ -107,7 +107,7 @@
     "holes": null,
     "website": null,
     "osm_id": "way/25492500",
-    "source": "osm"
+    "source": "manual"
   },
   {
     "name": "Costa Rica Country Club",

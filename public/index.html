@@ -2530,8 +2530,10 @@ function renderBook(){
       </div>
     ` : '';
     body = nearHomeBanner + courses.map(c => {
-      const miles = c.distanceMiles != null ? c.distanceMiles
-        : state.myLocation ? distanceMiles(state.myLocation.lat, state.myLocation.lng, c.lat, c.lng) : null;
+      // "away" is always from where you are now; the server's distanceMiles
+      // may be measured from your home course instead.
+      const miles = state.myLocation ? distanceMiles(state.myLocation.lat, state.myLocation.lng, c.lat, c.lng)
+        : c.distanceMiles != null ? c.distanceMiles : null;
       const distanceLine = (state.myLocation && miles != null)
         ? `<div class="meta">${formatDistance(miles)} away</div>`
         : (!term && state.bookNearHome && miles != null)
