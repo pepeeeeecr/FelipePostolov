@@ -1485,7 +1485,11 @@ async function fetchWithOneRetry(doFetch, label) {
   }
 }
 
-function nominatimFetch(url) {
+// When someone last waited on Nominatim (search, geocoding). Background town
+// lookups (places.js) hold back while it's recent, so they never slow a search.
+let nominatimLastForegroundAt = 0;
+function nominatimFetch(url, { background = false } = {}) {
+  if (!background) nominatimLastForegroundAt = Date.now();
   return fetchWithOneRetry(
     () => nominatimQueue(() => fetchWithTimeout(url, { headers: { 'User-Agent': OSM_USER_AGENT } }, NOMINATIM_TIMEOUT_MS)),
     'Nominatim'
@@ -1729,6 +1733,13 @@ async function searchFromNominatim(term) {
 // Attaches Foursome's own course ratings to OpenStreetMap search results —
 // done at response time rather than baked into the OSM cache entry, so
 // cached course lists stay reusable while ratings are always read fresh.
+// A course list response. placesPending tells the app some towns are still
+// being looked up, so it asks again shortly (see places.js).
+async function coursesBody(list, extra) {
+  const courses = await enrichCoursesWithRatings(list);
+  return { courses, placesPending: places.pendingAny(courses), ...extra };
+}
+
 async function enrichCoursesWithRatings(courses) {
   const summaries = await getCourseRatingSummaries(courses.map(c => c.name));
   return courses.map(c => ({ ...c, ...summaries.get(c.name), ...places.fields(c.lat, c.lng) }));
@@ -1747,7 +1758,7 @@ app.get('/api/golf-courses/nearby', ah(async (req, res) => {
   // Costa Rica: straight from our own course list — instant and complete.
   const crNearby = crCourses.nearby(lat, lng, radiusMiles);
   if (crNearby) {
-    return res.json({ courses: await enrichCoursesWithRatings(crNearby.slice(0, NEARBY_MAX_RESULTS)), complete: true, source: 'database' });
+    return res.json(await coursesBody(crNearby.slice(0, NEARBY_MAX_RESULTS), { complete: true, source: 'database' }));
   }
 
   const area = nearbyArea(lat, lng);
@@ -1767,7 +1778,7 @@ app.get('/api/golf-courses/nearby', ah(async (req, res) => {
     }
   }
   const courses = nearbyForPoint(entry.courses, lat, lng, radiusMiles);
-  res.json({ courses: await enrichCoursesWithRatings(courses), complete: entry.complete, source });
+  res.json(await coursesBody(courses, { complete: entry.complete, source }));
 }));
 
 app.get('/api/golf-courses/search', ah(async (req, res) => {
@@ -1781,17 +1792,17 @@ app.get('/api/golf-courses/search', ah(async (req, res) => {
   const crMatches = crCourses.search(term);
   const withCr = list => crCourses.mergeSearch(term, list);
   const cached = getCachedOsm(cacheKey);
-  if (cached) return res.json({ courses: await enrichCoursesWithRatings(withCr(cached)), source: 'cache' });
+  if (cached) return res.json(await coursesBody(withCr(cached), { source: 'cache' }));
 
   try {
     const courses = await sharedLookup(cacheKey, () => searchFromNominatim(term));
     setCachedOsm(cacheKey, courses);
-    res.json({ courses: await enrichCoursesWithRatings(withCr(courses)), source: 'nominatim' });
+    res.json(await coursesBody(withCr(courses), { source: 'nominatim' }));
   } catch (err) {
     console.error('Nominatim course search failed:', err.message);
     const stale = getCachedOsm(cacheKey, OSM_CACHE_STALE_MS);
-    if (stale) return res.json({ courses: await enrichCoursesWithRatings(withCr(stale)), source: 'stale-cache' });
-    if (crMatches.length) return res.json({ courses: await enrichCoursesWithRatings(crMatches), source: 'database' });
+    if (stale) return res.json(await coursesBody(withCr(stale), { source: 'stale-cache' }));
+    if (crMatches.length) return res.json(await coursesBody(crMatches, { source: 'database' }));
     res.status(503).json({ error: COURSE_SEARCH_UNAVAILABLE });
   }
 }));
@@ -1818,7 +1829,7 @@ app.use((err, req, res, next) => {
 // Costa Rica's courses (see crCourses.js) and saved course searches.
 const crCourses = makeCrCourses({ supabase, haversineMiles, overpassQuery, overpassServers: OVERPASS_SERVERS });
 crCourses.start();
-places.init({ supabase, nominatimFetch, crCourses }).catch(e => console.warn('Course places failed to load:', e.message));
+places.init({ supabase, nominatimFetch, crCourses, nominatimBusy: () => Date.now() - nominatimLastForegroundAt < 2500 }).catch(e => console.warn('Course places failed to load:', e.message));
 loadSavedCourseSearches().catch(e => console.warn('Saved course searches failed to load:', e.message));
 
 app.listen(PORT, () => {

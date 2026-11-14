@@ -45,8 +45,11 @@ test('course places', async () => {
   assert.deepStrictEqual(places.fields(33.63967, -105.85384, 'en'), {});
   assert.deepStrictEqual(places.fields(40.0, -30.0, 'en'), {});
   assert.deepStrictEqual(places.fields(10.0, 10.0, 'en'), {});   // lookup will find nothing
+  assert.strictEqual(places.pendingAny([{ lat: 33.63967, lng: -105.85384 }]), true, 'app is told to ask again');
+  assert.strictEqual(places.pendingAny([{ lat: 9.948599, lng: -84.212417 }]), false);
   await new Promise(r => setTimeout(r, 3000 * 3 + 500));
   assert.strictEqual(lookups, 3);
+  assert.strictEqual(places.pendingAny([{ lat: 33.63967, lng: -105.85384 }, { lat: 10.0, lng: 10.0 }]), false, 'done, including the failed one');
   assert.deepStrictEqual(places.fields(33.63967, -105.85384, 'en'), { place: 'Carrizozo, United States', placeFull: 'Carrizozo, New Mexico, United States' });
   assert.strictEqual(places.fields(33.64, -105.85, 'es').place, 'Carrizozo, Estados Unidos');
   assert.deepStrictEqual(places.fields(40.0, -30.0, 'en'), { place: 'Portugal', placeFull: 'Portugal' });

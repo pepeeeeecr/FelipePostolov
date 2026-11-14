@@ -15,11 +15,11 @@
 const { AsyncLocalStorage } = require('async_hooks');
 
 const langStore = new AsyncLocalStorage();
-const LOOKUP_EVERY_MS = 3000;   // background lookups share Nominatim's 1/second limit with search
+const LOOKUP_EVERY_MS = 1100;   // Nominatim allows 1 request/second in all; searches go first (nominatimBusy)
 const RETRY_FAILED_MS = 60 * 60 * 1000;
 const MAX_PENDING = 500;
 
-let deps = null;                // { supabase, nominatimFetch, crCourses }
+let deps = null;                // { supabase, nominatimFetch, crCourses, nominatimBusy }
 const known = new Map();        // key -> { town, province, cc }
 const pending = new Set();      // keys waiting for a lookup
 const failedAt = new Map();     // key -> time of the last failed lookup
@@ -88,13 +88,15 @@ function queue(lat, lng) {
   }
 }
 
+let busy = false;
 async function lookupNext() {
+  if (busy || (deps.nominatimBusy && deps.nominatimBusy())) return;
   const key = pending.values().next().value;
   if (!key) { clearInterval(worker); worker = null; return; }
-  pending.delete(key);
+  busy = true;
   const [, lat, lng] = key.split(':');
   try {
-    const res = await deps.nominatimFetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=10&lat=${lat}&lon=${lng}`);
+    const res = await deps.nominatimFetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=10&lat=${lat}&lon=${lng}`, { background: true });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const a = (await res.json()).address || {};
     const p = {
@@ -110,7 +112,15 @@ async function lookupNext() {
   } catch (e) {
     failedAt.set(key, Date.now());
     console.warn('Course place lookup failed for', key, e.message);
+  } finally {
+    pending.delete(key);
+    busy = false;
   }
+}
+
+// True while any item in the list is waiting for its lookup.
+function pendingAny(list) {
+  return (list || []).some(c => c && c.lat != null && c.lng != null && pending.has(keyFor(c.lat, c.lng)));
 }
 
 // At startup: every place looked up before (they don't go stale).
@@ -128,4 +138,4 @@ async function init(d) {
   console.log(`Course places: ${known.size} restored from the database.`);
 }
 
-module.exports = { init, fields, attach, label, languageMiddleware, keyFor, _known: known, _pending: pending };
+module.exports = { init, fields, attach, label, pendingAny, languageMiddleware, keyFor, _known: known, _pending: pending };
