@@ -9,7 +9,7 @@
 // Each section is { h: heading, p: [paragraphs], list: [bullet items] }.
 // `list` and multiple `p` entries are both optional.
 
-const LEGAL_EFFECTIVE_DATE = 'November 14, 2026';
+const LEGAL_EFFECTIVE_DATE = 'November 15, 2026';
 // The Terms changed after the other policies, so they carry their own date.
 const TERMS_EFFECTIVE_DATE = 'November 13, 2026';
 const ADMIN_EMAIL = 'foursomeapp.golf@gmail.com';
@@ -36,7 +36,7 @@ const PRIVACY_SECTIONS = [
   { h: 'The short version', p: ["We collect what we need to run Foursome — your profile info, the rounds/messages/ratings you create, and (only when you choose to share it) your location, to help you find nearby rounds and courses. We don't sell your data, and we don't share it with advertisers."] },
   { h: 'Information we collect', p: [
     "Account info: If you sign up with email and password, that's handled by our authentication provider, Supabase — we never see or store your plaintext password. If you use Foursome as a guest, we assign a random local ID stored only on your device; there's no email or password involved.",
-    'Profile info: your name, home course, handicap, and bio (if you add one) — set when you create your profile and visible to other Foursome users.',
+    'Profile info: your name, home course, handicap, bio, and profile photo (if you add them) — set when you create or edit your profile and visible to other Foursome users. Photos are shrunk on your phone before upload and stored with our database provider, Supabase; anyone with a photo’s link can view it. Removing your photo or deleting your account deletes the file.',
     'Rounds, messages, ratings, and reports: the tee times you post or request to join, chat messages within a round, ratings and comments you leave for other players, your answer after a round to whether everyone showed up (used to show each player’s rounds played and show-up rate), and reports you file against another user.',
     'Location: once you allow it, the app checks your location each time you open it or bring it back to the foreground. It only does this while you\'re using the app, never in the background. Your coordinates are used to sort rounds by distance and to find nearby golf courses (they\'re sent to our server for each course search so it can look them up via OpenStreetMap). We don\'t store your coordinates.', "On your device: the app keeps your login and settings on your device so you don't have to sign in every time.", "Paid events: if you join a paid event, we store your name, the event, the amount, when you paid, any refund, and the payment references ONVO gives us. Card details and SINPE Móvil information are entered on ONVO's page and go to ONVO, never to us. If you use \"Request an event\", we store the course and note you send.",
     "Push notification data: if you turn on notifications, we store a push subscription — an anonymous endpoint provided by your browser (website) or an Expo push token (mobile app) — and your phone's language, so we can alert you about join requests, approvals, and messages in your language. If you leave them on, we also tell you about new rounds at your home course and new events within 100 km of it (based on your home course, never your location), and remind you the evening before a round or event you’re in. You can switch round and event notifications off separately in Settings.",

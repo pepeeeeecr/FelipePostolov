@@ -63,6 +63,19 @@ function makeFakeSupabase(tables, { unique = {}, missingColumns = {} } = {}) {
     }
     return q;
   }
-  return { from: query };
+  // Storage: files kept in memory per bucket.
+  const files = {};
+  const storage = {
+    from(bucket) {
+      files[bucket] = files[bucket] || new Map();
+      return {
+        async upload(path, buf) { if (bucket === 'missing') return { error: { message: 'Bucket not found' } }; files[bucket].set(path, buf); return { data: { path }, error: null }; },
+        getPublicUrl(path) { return { data: { publicUrl: `https://x.supabase.co/storage/v1/object/public/${bucket}/${path}` } }; },
+        async remove(paths) { paths.forEach(p => files[bucket].delete(p)); return { error: null }; },
+      };
+    },
+    _files: files,
+  };
+  return { from: query, storage };
 }
 module.exports = { makeFakeSupabase };

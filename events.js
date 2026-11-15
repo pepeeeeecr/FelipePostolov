@@ -163,7 +163,7 @@ function registerEventRoutes(app, deps) {
       json.attendees = regs
         .filter(r => r.status === 'confirmed' && !blocked.has(r.user_id))
         .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-        .map(r => ({ userId: r.user_id, name: r.user_name }));
+        .map(r => ({ userId: r.user_id, name: r.user_name, photoUrl: deps.photoOf ? deps.photoOf(r.user_id) : null }));
     }
     res.json(json);
   }));
@@ -339,7 +339,7 @@ function registerEventRoutes(app, deps) {
     const nameOf = new Map((people || []).map(p => [p.user_id, p.name]));
     return {
       reports: (data || []).map(r => ({
-        id: r.id, reason: r.reason, messageText: r.message_text || null, createdAt: r.created_at,
+        id: r.id, reason: r.reason, messageText: r.message_text || null, photoUrl: r.photo_url || null, createdAt: r.created_at,
         reporter: nameOf.get(r.reporter_id) || '?', reported: nameOf.get(r.reported_id) || '?', reportedId: r.reported_id,
       })),
       canResolve,

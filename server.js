@@ -11,13 +11,14 @@ const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
 const webpush = require('web-push');
 const { moderateFields } = require('./moderation');
-const { registerEventRoutes, isEventAdmin, eventJson } = require('./events');
+const { registerEventRoutes, isEventAdmin, eventJson, whenLabel } = require('./events');
 const { makePayments } = require('./eventPayments');
 const { registerSharePages } = require('./sharePages');
 const { translateErrors, push, pickLang } = require('./i18n');
 const places = require('./places');
 const { makeNotifier } = require('./notify');
 const { registerAttendance } = require('./attendance');
+const { registerActivity } = require('./activity');
 // Set up near the bottom (they need routes and helpers defined below).
 let notifier = null;
 let attendance = null;
@@ -54,6 +55,10 @@ if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false }
 });
+// Profile photos (photos.js): photos.photoOf(userId) is used all over.
+const { makePhotos } = require('./photos');
+const photos = makePhotos({ supabase });
+photos.start();
 
 async function getUser(userId) {
   const { data, error } = await supabase.from('users').select('*').eq('user_id', userId).maybeSingle();
@@ -80,6 +85,7 @@ function teetimeRowToJson(row) {
     status: row.status || 'active',
     requests: row.requests || [],
     createdAt: row.created_at,
+    hostPhotoUrl: photos.photoOf(row.host_id),
     ...places.fields(row.lat, row.lng),
   };
 }
@@ -169,6 +175,7 @@ async function buildTeetimeResponse(row, viewerId, blockedIds) {
       playedTogether: await getPlayedTogetherCount(viewerId, r.userId),
       confirmedRounds: await getConfirmedRoundsCount(r.userId),
       ...(reliability.get(r.userId) || {}),
+      photoUrl: photos.photoOf(r.userId),
     })));
   } else {
     json.requests = viewerId ? json.requests.filter(r => r.userId === viewerId) : [];
@@ -197,7 +204,8 @@ async function toProfileJson(row, viewerId) {
     bio: row.bio || '',
     availability: row.availability || [],
     avgRating: summary.avgRating,
-    ratingCount: summary.ratingCount
+    ratingCount: summary.ratingCount,
+    photoUrl: photos.photoOf(row.user_id),
   };
   // Rounds played and show-up rate (attendance.js).
   if (attendance) Object.assign(json, (await attendance.reliabilityFor([row.user_id])).get(row.user_id) || {});
@@ -390,7 +398,7 @@ async function chatMessagesFor(teetimeId, viewerId) {
     idsBlockedBy(viewerId),
   ]);
   if (error) throw error;
-  return (messages || []).filter(m => !blocked.has(m.senderId));
+  return (messages || []).filter(m => !blocked.has(m.senderId)).map(m => ({ ...m, senderPhotoUrl: photos.photoOf(m.senderId) }));
 }
 
 async function getBlockedUserIds(userId) {
@@ -629,7 +637,7 @@ app.use(translateErrors);
 // registered before the global JSON parser (see eventPayments.js).
 eventPayments.registerWebhook(app);
 
-app.use(express.json());
+app.use(express.json({ limit: '1mb' })); // profile photos arrive as ~50 KB of base64
 app.use(express.static(path.join(__dirname, 'public')));
 
 // --- Auth -----------------------------------------------------------------
@@ -685,6 +693,9 @@ app.post('/api/auth/migrate-guest', ah(async (req, res) => {
 app.delete('/api/account', ah(async (req, res) => {
   const userId = verifiedUserId(req);
   if (!userId) return res.status(401).json({ error: 'Sign in required' });
+
+  // Their profile photo file goes too (the users row is deleted below).
+  await photos.remove(userId).catch(() => {});
 
   // Paid events first: refund upcoming paid spots and remove the name from
   // payment records (kept for bookkeeping).
@@ -1283,7 +1294,7 @@ app.delete('/api/blocks/:blockedId', ah(async (req, res) => {
 app.post('/api/reports', ah(async (req, res) => {
   const userId = verifiedUserId(req);
   if (!userId) return res.status(401).json({ error: 'Sign in required' });
-  const { reason, messageId } = req.body;
+  const { reason, messageId, photo } = req.body;
   let { reportedId } = req.body;
   if (!reason || !reason.trim()) return res.status(400).json({ error: 'reason is required' });
 
@@ -1306,7 +1317,15 @@ app.post('/api/reports', ah(async (req, res) => {
   const base = { reporter_id: userId, reported_id: reportedId, reason: cleanReason, created_at: Date.now() };
 
   let error;
-  if (message) {
+  if (photo) {
+    // A profile photo: keep the address of the photo as it was reported.
+    const photoUrl = photos.photoOf(reportedId);
+    if (!photoUrl) return res.status(400).json({ error: 'This person has no photo' });
+    ({ error } = await supabase.from('user_reports').insert({ ...base, photo_url: photoUrl }));
+    if (error && /photo_url|column|schema cache/i.test(error.message || '')) {
+      ({ error } = await supabase.from('user_reports').insert({ ...base, reason: `${cleanReason}\n\nReported profile photo: ${photoUrl}` }));
+    }
+  } else if (message) {
     const messageText = String(message.text).slice(0, 1000);
     ({ error } = await supabase.from('user_reports').insert({
       ...base, message_id: message.id, teetime_id: message.teetime_id, message_text: messageText,
@@ -1831,14 +1850,24 @@ app.get('/api/golf-courses/search', ah(async (req, res) => {
 }));
 
 // --- Paid events (see events.js) ------------------------------------------
+photos.registerRoutes(app, {
+  ah, verifiedUserId, isBanned, BANNED_ERROR,
+  requireOwner: (req, res) => {
+    if (isEventAdmin(req)) return true;
+    res.status(req.authUser ? 403 : 401).json({ error: 'Only the Foursome owner can do that' });
+    return false;
+  },
+});
 notifier = makeNotifier({ supabase, notifyUser, geocodeCourse, haversineMiles, DEMO_USER_IDS });
 notifier.start();
 attendance = registerAttendance(app, { supabase, ah, verifiedUserId, DEMO_USER_IDS });
+registerActivity(app, { supabase, ah, verifiedUserId, haversineMiles, peekHome: name => notifier.peekHome(name), DEMO_USER_IDS, whenLabel });
 registerEventRoutes(app, {
   supabase, ah, verifiedUserId, geocodeCourse, haversineMiles, idsBlockedBy,
   isBanned, BANNED_ERROR, moderateFields, getUser, sendAdminEmail,
   notifyNewEvent: row => notifier.newEvent(row),
   DEMO_USER_IDS,
+  photoOf: photos.photoOf,
 });
 eventPayments.registerRoutes(app);
 registerSharePages(app, { supabase, ah, DEMO_USER_IDS, eventJson });

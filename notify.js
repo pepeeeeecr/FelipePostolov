@@ -54,6 +54,21 @@ function makeNotifier(deps) {
     return value;
   }
 
+  // Without waiting: the coordinates if already known (null when the
+  // course can't be found), undefined while they're being looked up in the
+  // background for next time.
+  const peeking = new Set();
+  function peekHome(name) {
+    const key = fold(name);
+    if (!key) return null;
+    if (homeCoords.has(key)) return homeCoords.get(key);
+    if (!peeking.has(key)) {
+      peeking.add(key);
+      coordsForHome(name).catch(() => {}).finally(() => peeking.delete(key));
+    }
+    return undefined;
+  }
+
   // Everyone who could be told, with their home course (and its coordinates
   // when `withCoords`). Banned and demo accounts are left out.
   async function candidates(withCoords) {
@@ -288,7 +303,7 @@ function makeNotifier(deps) {
     setInterval(tick, CHECK_EVERY_MS).unref();
   }
 
-  return { start, newRound, newEvent, tick, _internals: { localParts, shortWhen, distanceText, nextDay, fold } };
+  return { start, newRound, newEvent, tick, peekHome, coordsForHome, _internals: { localParts, shortWhen, distanceText, nextDay, fold } };
 }
 
 module.exports = { makeNotifier };
