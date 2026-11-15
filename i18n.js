@@ -21,6 +21,8 @@ const ERRORS_ES = {
   'Could not save profile': 'No se pudo guardar el perfil',
   'Could not load availability': 'No se pudo cargar la disponibilidad',
   'Not found': 'No encontrado',
+  'Run supabase-dashboard.sql first': 'Primero corré supabase-dashboard.sql',
+  'Could not load the dashboard': 'No se pudo cargar el panel',
   'Only players in this round can answer': 'Solo los jugadores de esta ronda pueden responder',
   'This round hasn’t happened yet': 'Esta ronda todavía no se jugó',
   'Pick players from this round': 'Elegí jugadores de esta ronda',

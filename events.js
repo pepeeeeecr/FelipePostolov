@@ -104,7 +104,7 @@ function registerEventRoutes(app, deps) {
     if (eventIds.length === 0) return new Map();
     const { data, error } = await supabase
       .from('event_registrations')
-      .select('event_id, user_id, user_name, status, hold_expires_at, checkout_url, created_at')
+      .select('event_id, user_id, user_name, status, hold_expires_at, checkout_url, created_at, amount_colones')
       .in('event_id', eventIds);
     if (error) throw error;
     const byEvent = new Map(eventIds.map(id => [id, []]));
@@ -294,12 +294,101 @@ function registerEventRoutes(app, deps) {
 
   // Cancelling an event (with refunds) lives in eventPayments.js.
 
+  // Requests still waiting (handled_at empty). Before supabase-dashboard.sql
+  // there's no handled_at, so every request is listed.
+  async function openEventRequests() {
+    let { data, error } = await supabase.from('event_requests')
+      .select('id, user_name, course, note, created_at, handled_at').is('handled_at', null).order('created_at', { ascending: false }).limit(100);
+    let canHandle = true;
+    if (error) {
+      canHandle = false;
+      ({ data, error } = await supabase.from('event_requests')
+        .select('id, user_name, course, note, created_at').order('created_at', { ascending: false }).limit(100));
+    }
+    if (error) throw error;
+    return { requests: (data || []).map(r => ({ id: r.id, userName: r.user_name, course: r.course, note: r.note, createdAt: r.created_at })), canHandle };
+  }
+
   app.get('/api/admin/event-requests', ah(async (req, res) => {
     if (!requireAdmin(req, res)) return;
-    const { data, error } = await supabase.from('event_requests')
-      .select('id, user_name, course, note, created_at').order('created_at', { ascending: false }).limit(100);
-    if (error) return res.status(500).json({ error: 'Could not load requests' });
-    res.json({ requests: (data || []).map(r => ({ id: r.id, userName: r.user_name, course: r.course, note: r.note, createdAt: r.created_at })) });
+    try {
+      res.json(await openEventRequests());
+    } catch (e) {
+      res.status(500).json({ error: 'Could not load requests' });
+    }
+  }));
+
+  app.post('/api/admin/event-requests/:id/handled', ah(async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const { error } = await supabase.from('event_requests').update({ handled_at: new Date().toISOString() }).eq('id', req.params.id);
+    if (error) return res.status(400).json({ error: 'Run supabase-dashboard.sql first' });
+    res.json({ ok: true });
+  }));
+
+  // Open reports (resolved_at empty), newest first, with names.
+  async function openReports() {
+    let { data, error } = await supabase.from('user_reports').select('*').is('resolved_at', null).order('created_at', { ascending: false }).limit(100);
+    let canResolve = true;
+    if (error) {
+      canResolve = false;
+      ({ data, error } = await supabase.from('user_reports').select('*').order('created_at', { ascending: false }).limit(100));
+    }
+    if (error) throw error;
+    const ids = [...new Set((data || []).flatMap(r => [r.reporter_id, r.reported_id]))];
+    const { data: people } = ids.length ? await supabase.from('users').select('user_id, name').in('user_id', ids) : { data: [] };
+    const nameOf = new Map((people || []).map(p => [p.user_id, p.name]));
+    return {
+      reports: (data || []).map(r => ({
+        id: r.id, reason: r.reason, messageText: r.message_text || null, createdAt: r.created_at,
+        reporter: nameOf.get(r.reporter_id) || '?', reported: nameOf.get(r.reported_id) || '?', reportedId: r.reported_id,
+      })),
+      canResolve,
+    };
+  }
+
+  app.post('/api/admin/reports/:id/resolve', ah(async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const { error } = await supabase.from('user_reports').update({ resolved_at: new Date().toISOString() }).eq('id', req.params.id);
+    if (error) return res.status(400).json({ error: 'Run supabase-dashboard.sql first' });
+    res.json({ ok: true });
+  }));
+
+  // Manage > Dashboard: the numbers at a glance.
+  app.get('/api/admin/dashboard', ah(async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const weekAgo = Date.now() - 7 * 24 * 3600e3;
+    const { data: users, error: uErr } = await supabase.from('users').select('*');
+    if (uErr) return res.status(500).json({ error: 'Could not load the dashboard' });
+    const real = (users || []).filter(u => !(deps.DEMO_USER_IDS && deps.DEMO_USER_IDS.has(u.user_id)));
+    // Sign-up date: created_at (after supabase-dashboard.sql), else consent date.
+    const signedUpAt = u => Number(u.created_at || u.terms_agreed_at || 0);
+    const { count: roundsThisWeek } = await supabase.from('teetimes').select('id', { count: 'exact', head: true }).gte('created_at', weekAgo);
+
+    const { data: events } = await supabase.from('events').select('*').eq('status', 'open').gt('starts_at', new Date().toISOString()).order('starts_at', { ascending: true });
+    const regs = await registrationsFor((events || []).map(e => e.id));
+    const upcoming = (events || []).map(ev => {
+      const list = regs.get(ev.id) || [];
+      const paid = list.filter(r => r.status === 'confirmed');
+      return {
+        id: ev.id, title: ev.title, course: ev.course, whenLabel: whenLabel(new Date(ev.starts_at), ev.time_zone, req.lang),
+        sold: paid.length, maxPlayers: ev.max_players,
+        revenueColones: paid.reduce((sum, r) => sum + (Number(r.amount_colones) || ev.price_colones), 0),
+      };
+    });
+
+    const requests = await openEventRequests().catch(() => ({ requests: [], canHandle: false }));
+    const reports = await openReports().catch(() => ({ reports: [], canResolve: false }));
+    res.json({
+      totalUsers: real.length,
+      signupsThisWeek: real.filter(u => signedUpAt(u) >= weekAgo).length,
+      roundsThisWeek: roundsThisWeek || 0,
+      upcomingEvents: upcoming,
+      upcomingRevenueColones: upcoming.reduce((s, e) => s + e.revenueColones, 0),
+      pendingRequests: requests.requests.length,
+      openReports: reports.reports,
+      // false until supabase-dashboard.sql is run
+      ready: requests.canHandle && reports.canResolve && real.some(u => u.created_at != null),
+    });
   }));
 }
 

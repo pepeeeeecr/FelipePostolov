@@ -1,14 +1,14 @@
 // A small in-memory stand-in for the Supabase client: enough of select /
 // eq / neq / in / gte / gt / lte / lt / or / like / order / limit / range /
 // maybeSingle / single, plus insert (with unique keys), update and upsert.
-function makeFakeSupabase(tables, { unique = {} } = {}) {
+function makeFakeSupabase(tables, { unique = {}, missingColumns = {} } = {}) {
   let nextId = 1000;
   function query(name) {
     const rows = () => (tables[name] = tables[name] || []);
     const filters = [];
     let op = 'select', payload = null, opts = {}, single = null, limitN = null;
     const q = {
-      select(_cols, o) { if (op === 'select') opts = o || {}; return q; },
+      select(cols, o) { if (op === 'select') { opts = o || {}; if ((missingColumns[name] || []).some(c => String(cols).includes(c))) opts.missing = true; } return q; },
       eq(k, v) { filters.push(r => r[k] === v); return q; },
       neq(k, v) { filters.push(r => r[k] !== v); return q; },
       in(k, vs) { filters.push(r => vs.includes(r[k])); return q; },
@@ -17,6 +17,8 @@ function makeFakeSupabase(tables, { unique = {} } = {}) {
       lte(k, v) { filters.push(r => r[k] <= v); return q; },
       lt(k, v) { filters.push(r => r[k] < v); return q; },
       like(k, v) { const re = new RegExp('^' + v.replace(/%/g, '.*') + '$'); filters.push(r => re.test(r[k])); return q; },
+      is(k, v) { if ((missingColumns[name] || []).includes(k)) opts.missing = true;
+         filters.push(r => (r[k] ?? null) === v); return q; },
       not() { return q; },
       or(expr) {
         const parts = expr.split(',').map(p => p.split('.eq.'));
@@ -37,6 +39,7 @@ function makeFakeSupabase(tables, { unique = {} } = {}) {
       },
     };
     function run() {
+      if (opts.missing) return { data: null, error: { message: 'column does not exist' } };
       const match = rows().filter(r => filters.every(f => f(r)));
       if (op === 'insert') {
         for (const p of [].concat(payload)) {

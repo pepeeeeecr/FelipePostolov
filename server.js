@@ -753,6 +753,9 @@ app.post('/api/profiles', ah(async (req, res) => {
       terms_agreed_at: termsAgreedAt || null, terms_policy_version: policyVersion || null
     });
     if (error) return res.status(500).json({ error: 'Could not save profile' });
+    // Sign-up date for the owner dashboard; separate so profile creation
+    // never depends on supabase-dashboard.sql having been run.
+    supabase.from('users').update({ created_at: Date.now() }).eq('user_id', userId).then(() => {}, () => {});
     // Only ever issued here, when a guest's row is first created — never
     // on an update, which would hand a token to anyone who knows the id.
     if (!req.authUser && GUEST_ID_PATTERN.test(userId)) {
@@ -1835,6 +1838,7 @@ registerEventRoutes(app, {
   supabase, ah, verifiedUserId, geocodeCourse, haversineMiles, idsBlockedBy,
   isBanned, BANNED_ERROR, moderateFields, getUser, sendAdminEmail,
   notifyNewEvent: row => notifier.newEvent(row),
+  DEMO_USER_IDS,
 });
 eventPayments.registerRoutes(app);
 registerSharePages(app, { supabase, ah, DEMO_USER_IDS, eventJson });
