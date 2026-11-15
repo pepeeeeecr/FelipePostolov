@@ -98,7 +98,7 @@ function eventJson(row, regs, { haversineMiles, lat, lng, lang = 'en' } = {}) {
 }
 
 function registerEventRoutes(app, deps) {
-  const { supabase, ah, verifiedUserId, geocodeCourse, haversineMiles, idsBlockedBy, isBanned, BANNED_ERROR, moderateFields, getUser, sendAdminEmail } = deps;
+  const { supabase, ah, verifiedUserId, geocodeCourse, haversineMiles, idsBlockedBy, isBanned, BANNED_ERROR, moderateFields, getUser, sendAdminEmail, notifyNewEvent } = deps;
 
   async function registrationsFor(eventIds) {
     if (eventIds.length === 0) return new Map();
@@ -257,6 +257,7 @@ function registerEventRoutes(app, deps) {
       console.error('Failed to create event:', error.message);
       return res.status(500).json({ error: 'Could not create the event' });
     }
+    if (notifyNewEvent) notifyNewEvent(row); // in the background (notify.js)
     res.json(eventJson(row, [], { lang: req.lang }));
   }));
 

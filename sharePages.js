@@ -66,6 +66,57 @@ function registerSharePages(app, { supabase, ah, DEMO_USER_IDS, eventJson }) {
     }));
   });
 
+  // "Add to calendar": a calendar file iOS opens straight into Calendar.
+  // Rounds have no time zone, so their time is "floating" (the phone's own
+  // zone, which is where the player is); events use their real start time.
+  const icsText = s => String(s || '').replace(/\\/g, '\\\\').replace(/[,;]/g, m => '\\' + m).replace(/\r?\n/g, '\\n');
+  const icsUtc = d => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  function sendIcs(res, { uid, start, end, floating, title, location, description, url }) {
+    const stamp = icsUtc(new Date());
+    const lines = [
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Foursome//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
+      'BEGIN:VEVENT', `UID:${uid}@foursome`, `DTSTAMP:${stamp}`,
+      floating ? `DTSTART:${start}` : `DTSTART:${icsUtc(start)}`,
+      floating ? `DTEND:${end}` : `DTEND:${icsUtc(end)}`,
+      `SUMMARY:${icsText(title)}`, `LOCATION:${icsText(location)}`, `DESCRIPTION:${icsText(description)}`, `URL:${url}`,
+      'BEGIN:VALARM', 'TRIGGER:-PT2H', 'ACTION:DISPLAY', `DESCRIPTION:${icsText(title)}`, 'END:VALARM',
+      'END:VEVENT', 'END:VCALENDAR',
+    ];
+    res.set('Content-Type', 'text/calendar; charset=utf-8').set('Content-Disposition', `inline; filename="${uid}.ics"`).set('Cache-Control', 'no-store').send(lines.join('\r\n') + '\r\n');
+  }
+  const BASE = process.env.PUBLIC_URL || 'https://felipepostolov.onrender.com';
+
+  app.get('/r/:id.ics', ah(async (req, res) => {
+    const lang = pickLang(req);
+    const { data: row } = await supabase.from('teetimes').select('*').eq('id', req.params.id).maybeSingle();
+    if (!row || row.status === 'cancelled' || DEMO_USER_IDS.has(row.host_id)) return res.status(404).send('Not found');
+    const [h, m] = String(row.time || '08:00').split(':').map(n => parseInt(n, 10) || 0);
+    const start = `${row.date.replace(/-/g, '')}T${String(h).padStart(2, '0')}${String(m).padStart(2, '0')}00`;
+    const endH = h + 4, endM = m + 30;
+    const end = `${row.date.replace(/-/g, '')}T${String(Math.min(23, endH + Math.floor(endM / 60))).padStart(2, '0')}${String(endM % 60).padStart(2, '0')}00`;
+    const where = places.fields(row.lat, row.lng, lang).placeFull;
+    sendIcs(res, {
+      uid: `round-${row.id}`, start, end, floating: true,
+      title: lang === 'en' ? `Golf: ${row.course}` : `Golf: ${row.course}`,
+      location: where ? `${row.course}, ${where}` : row.course,
+      description: (lang === 'en' ? `Foursome round hosted by ${row.host_name}. ` : `Ronda de Foursome con ${row.host_name}. `) + `${BASE}/r/${row.id}`,
+      url: `${BASE}/r/${encodeURIComponent(row.id)}`,
+    });
+  }));
+
+  app.get('/e/:id.ics', ah(async (req, res) => {
+    const lang = pickLang(req);
+    const { data: row } = await supabase.from('events').select('*').eq('id', req.params.id).maybeSingle();
+    if (!row || row.status !== 'open') return res.status(404).send('Not found');
+    const start = new Date(row.starts_at);
+    const where = places.fields(row.lat, row.lng, lang).placeFull;
+    sendIcs(res, {
+      uid: `event-${row.id}`, start, end: new Date(start.getTime() + 5 * 3600e3), floating: false,
+      title: row.title, location: where ? `${row.course}, ${where}` : row.course,
+      description: `${row.description ? row.description + ' ' : ''}${BASE}/e/${row.id}`, url: `${BASE}/e/${row.id}`,
+    });
+  }));
+
   app.get('/r/:id', ah(async (req, res) => {
     const lang = pickLang(req);
     const t = T[lang];

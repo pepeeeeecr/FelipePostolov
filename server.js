@@ -16,6 +16,11 @@ const { makePayments } = require('./eventPayments');
 const { registerSharePages } = require('./sharePages');
 const { translateErrors, push, pickLang } = require('./i18n');
 const places = require('./places');
+const { makeNotifier } = require('./notify');
+const { registerAttendance } = require('./attendance');
+// Set up near the bottom (they need routes and helpers defined below).
+let notifier = null;
+let attendance = null;
 const legalEs = require('./legalContent.es');
 const { makeCrCourses } = require('./crCourses');
 const legal = require('./legalContent');
@@ -158,10 +163,12 @@ async function buildTeetimeResponse(row, viewerId, blockedIds) {
     if (blockedIds && blockedIds.size) {
       requests = requests.filter(r => r.status !== 'pending' || !blockedIds.has(r.userId));
     }
+    const reliability = attendance ? await attendance.reliabilityFor(requests.map(r => r.userId)) : new Map();
     json.requests = await Promise.all(requests.map(async r => ({
       ...r,
       playedTogether: await getPlayedTogetherCount(viewerId, r.userId),
       confirmedRounds: await getConfirmedRoundsCount(r.userId),
+      ...(reliability.get(r.userId) || {}),
     })));
   } else {
     json.requests = viewerId ? json.requests.filter(r => r.userId === viewerId) : [];
@@ -192,6 +199,8 @@ async function toProfileJson(row, viewerId) {
     avgRating: summary.avgRating,
     ratingCount: summary.ratingCount
   };
+  // Rounds played and show-up rate (attendance.js).
+  if (attendance) Object.assign(json, (await attendance.reliabilityFor([row.user_id])).get(row.user_id) || {});
   if (viewerId && viewerId !== row.user_id) {
     json.mutualRounds = await getPlayedTogetherCount(viewerId, row.user_id);
     json.blockedByMe = await blockedByViewer(viewerId, row.user_id);
@@ -203,12 +212,12 @@ async function toProfileJson(row, viewerId) {
 // basic use (see https://docs.expo.dev/push-notifications/sending-notifications/).
 // A "DeviceNotRegistered" ticket means the token is dead (app uninstalled,
 // or the OS revoked it) — same cleanup idea as a 410/404 from web-push below.
-async function sendExpoPush(row, title, body) {
+async function sendExpoPush(row, title, body, data) {
   try {
     const res = await fetch('https://exp.host/--/api/v2/push/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'Accept-Encoding': 'gzip, deflate' },
-      body: JSON.stringify({ to: row.endpoint, title, body, sound: 'default' }),
+      body: JSON.stringify({ to: row.endpoint, title, body, sound: 'default', ...(data ? { data } : {}) }),
     });
     const data = await res.json();
     const ticket = data && data.data;
@@ -229,25 +238,28 @@ async function sendExpoPush(row, title, body) {
   }
 }
 
-// title can be a function (lang) => [title, body], so each phone gets the
-// message in the language it subscribed with (Spanish if unknown).
-async function notifyUser(userId, title, body) {
+// title can be a function (lang, subscription) => [title, body], so each
+// phone gets the message in the language it subscribed with (Spanish if
+// unknown). opts.data rides along (e.g. { url } to open when tapped);
+// opts.accept(subscription) can skip a phone (its notification switches).
+async function notifyUser(userId, title, body, opts = {}) {
   const { data: subs, error } = await supabase.from('push_subscriptions').select('*').eq('user_id', userId);
   if (error) {
     console.error('Failed to load push subscriptions for', userId, error.message);
     return;
   }
   for (const row of subs || []) {
+    if (opts.accept && !opts.accept(row.subscription)) continue;
     const lang = (row.subscription && row.subscription.lang) === 'en' ? 'en' : 'es';
-    const [msgTitle, msgBody] = typeof title === 'function' ? title(lang) : [title, body];
+    const [msgTitle, msgBody] = typeof title === 'function' ? title(lang, row.subscription) : [title, body];
     if (row.platform === 'expo') {
-      await sendExpoPush(row, msgTitle, msgBody);
+      await sendExpoPush(row, msgTitle, msgBody, opts.data);
       continue;
     }
     if (!webPushConfigured) continue;
     try {
-      const { lang: _lang, ...subscription } = row.subscription || {};
-      await webpush.sendNotification(subscription, JSON.stringify({ title: msgTitle, body: msgBody }));
+      const { lang: _lang, prefs: _prefs, ...subscription } = row.subscription || {};
+      await webpush.sendNotification(subscription, JSON.stringify({ title: msgTitle, body: msgBody, ...(opts.data || {}) }));
     } catch (err) {
       console.error('Push failed for', userId, err.statusCode || err.message);
       if (err.statusCode === 410 || err.statusCode === 404) {
@@ -849,6 +861,7 @@ app.post('/api/teetimes', ah(async (req, res) => {
     created_at: Date.now()
   }).select().single();
   if (error) return res.status(500).json({ error: 'Could not create tee time' });
+  if (notifier) notifier.newRound(row); // in the background (notify.js)
   res.json(await buildTeetimeResponse(row, verifiedUserId(req)));
 }));
 
@@ -1176,14 +1189,21 @@ app.post('/api/push/subscribe-expo', ah(async (req, res) => {
   if (!userId || !token) {
     return res.status(400).json({ error: 'userId and token are required' });
   }
-  const { data: existing, error: fetchError } = await supabase.from('push_subscriptions').select('id').eq('endpoint', token).maybeSingle();
+  const { data: existing, error: fetchError } = await supabase.from('push_subscriptions').select('id, subscription').eq('endpoint', token).maybeSingle();
   if (fetchError) {
     console.error('Failed to look up Expo push subscription:', fetchError.message);
     return res.status(500).json({ error: 'Could not save subscription' });
   }
+  // Settings > Notifications switches and distance unit (see notify.js).
+  // An app version that doesn't send them keeps what was saved before.
+  const p = req.body.prefs;
+  const prefs = p && typeof p === 'object'
+    ? { rounds: p.rounds !== false, events: p.events !== false, unit: p.unit === 'mi' ? 'mi' : 'km' }
+    : (existing && existing.subscription && existing.subscription.prefs) || undefined;
+  const subscription = { token, lang: req.lang, ...(prefs ? { prefs } : {}) };
   if (existing) {
     const { error } = await supabase.from('push_subscriptions')
-      .update({ user_id: userId, subscription: { token, lang: req.lang }, platform: 'expo' })
+      .update({ user_id: userId, subscription, platform: 'expo' })
       .eq('endpoint', token);
     if (error) {
       console.error('Failed to update Expo push subscription:', error.message);
@@ -1191,7 +1211,7 @@ app.post('/api/push/subscribe-expo', ah(async (req, res) => {
     }
   } else {
     const { error } = await supabase.from('push_subscriptions')
-      .insert({ user_id: userId, endpoint: token, subscription: { token, lang: req.lang }, platform: 'expo', created_at: Date.now() });
+      .insert({ user_id: userId, endpoint: token, subscription, platform: 'expo', created_at: Date.now() });
     if (error) {
       console.error('Failed to insert Expo push subscription:', error.message);
       return res.status(500).json({ error: 'Could not save subscription' });
@@ -1808,9 +1828,13 @@ app.get('/api/golf-courses/search', ah(async (req, res) => {
 }));
 
 // --- Paid events (see events.js) ------------------------------------------
+notifier = makeNotifier({ supabase, notifyUser, geocodeCourse, haversineMiles, DEMO_USER_IDS });
+notifier.start();
+attendance = registerAttendance(app, { supabase, ah, verifiedUserId, DEMO_USER_IDS });
 registerEventRoutes(app, {
   supabase, ah, verifiedUserId, geocodeCourse, haversineMiles, idsBlockedBy,
   isBanned, BANNED_ERROR, moderateFields, getUser, sendAdminEmail,
+  notifyNewEvent: row => notifier.newEvent(row),
 });
 eventPayments.registerRoutes(app);
 registerSharePages(app, { supabase, ah, DEMO_USER_IDS, eventJson });
