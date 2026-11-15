@@ -18,6 +18,10 @@ const crypto = require('crypto');
 const BUCKET = 'profile-photos';
 const MAX_BYTES = 600 * 1024;
 const REFRESH_MS = 5 * 60 * 1000;
+// Supabase's cache keeps serving a file at its old address for this long
+// after it's deleted, so a removed (e.g. reported) photo disappears within
+// an hour. Each upload has a new address, so this doesn't slow anything.
+const CACHE_SECONDS = 3600;
 
 function makePhotos({ supabase }) {
   const photos = new Map(); // userId -> url
@@ -75,7 +79,7 @@ function makePhotos({ supabase }) {
     if (buf.length > MAX_BYTES) return { status: 400, error: 'That photo is too big' };
     if (!isJpeg(buf)) return { status: 400, error: 'That photo couldn’t be read — try another one' };
     const path = `${userId}/${Date.now()}-${crypto.randomBytes(6).toString('hex')}.jpg`;
-    const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, buf, { contentType: 'image/jpeg', cacheControl: '31536000', upsert: false });
+    const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, buf, { contentType: 'image/jpeg', cacheControl: String(CACHE_SECONDS), upsert: false });
     if (upErr) {
       console.error('Photo upload failed:', upErr.message);
       return { status: 503, error: /bucket/i.test(upErr.message) ? 'Photos aren’t set up yet' : 'Could not save the photo' };
