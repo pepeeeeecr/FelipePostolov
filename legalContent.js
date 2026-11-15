@@ -9,7 +9,7 @@
 // Each section is { h: heading, p: [paragraphs], list: [bullet items] }.
 // `list` and multiple `p` entries are both optional.
 
-const LEGAL_EFFECTIVE_DATE = 'November 13, 2026';
+const LEGAL_EFFECTIVE_DATE = 'November 14, 2026';
 // The Terms changed after the other policies, so they carry their own date.
 const TERMS_EFFECTIVE_DATE = 'November 13, 2026';
 const ADMIN_EMAIL = 'foursomeapp.golf@gmail.com';

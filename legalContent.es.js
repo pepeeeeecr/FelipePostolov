@@ -2,7 +2,7 @@
 // as Costa Rican legal text usually is (the Help answers use "vos" like the
 // rest of the app). Generated alongside the backend copy — keep them in sync.
 
-const LEGAL_EFFECTIVE_DATE = '13 de noviembre de 2026';
+const LEGAL_EFFECTIVE_DATE = '14 de noviembre de 2026';
 const TERMS_EFFECTIVE_DATE = '13 de noviembre de 2026';
 
 const TERMS_SECTIONS = [
