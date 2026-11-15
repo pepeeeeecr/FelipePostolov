@@ -337,11 +337,19 @@ function registerEventRoutes(app, deps) {
     const ids = [...new Set((data || []).flatMap(r => [r.reporter_id, r.reported_id]))];
     const { data: people } = ids.length ? await supabase.from('users').select('user_id, name').in('user_id', ids) : { data: [] };
     const nameOf = new Map((people || []).map(p => [p.user_id, p.name]));
+    const groupIds = [...new Set((data || []).map(r => r.group_id).filter(Boolean))];
+    const groupOf = deps.groupNames && groupIds.length ? await deps.groupNames(groupIds).catch(() => new Map()) : new Map();
     return {
-      reports: (data || []).map(r => ({
-        id: r.id, reason: r.reason, messageText: r.message_text || null, photoUrl: r.photo_url || null, createdAt: r.created_at,
-        reporter: nameOf.get(r.reporter_id) || '?', reported: nameOf.get(r.reported_id) || '?', reportedId: r.reported_id,
-      })),
+      reports: (data || []).map(r => {
+        const g = r.group_id ? groupOf.get(r.group_id) : null;
+        return {
+          id: r.id, reason: r.reason, messageText: r.message_text || null, photoUrl: r.photo_url || null, createdAt: r.created_at,
+          reporter: nameOf.get(r.reporter_id) || '?', reported: nameOf.get(r.reported_id) || '?', reportedId: r.reported_id,
+          // A group's name/description or a group chat message.
+          groupId: r.group_id || null, groupName: g ? g.name : null, groupRemoved: !!(g && g.removed_at),
+          isGroupMessage: r.group_message_id != null,
+        };
+      }),
       canResolve,
     };
   }
@@ -378,7 +386,9 @@ function registerEventRoutes(app, deps) {
 
     const requests = await openEventRequests().catch(() => ({ requests: [], canHandle: false }));
     const reports = await openReports().catch(() => ({ reports: [], canResolve: false }));
+    const groupList = deps.groupsForDashboard ? await deps.groupsForDashboard() : null;
     res.json({
+      groups: groupList, // null until supabase-groups.sql is run
       totalUsers: real.length,
       signupsThisWeek: real.filter(u => signedUpAt(u) >= weekAgo).length,
       roundsThisWeek: roundsThisWeek || 0,

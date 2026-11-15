@@ -19,12 +19,14 @@ const T = {
     full: 'Lleno', hcp: 'Hándicap', open: 'Abrir en Foursome', get: 'Descargar la app',
     gone: 'Esta ronda o evento ya no está disponible.', price: 'Precio',
     blurb: 'Foursome te ayuda a encontrar con quién jugar golf.',
+    group: 'Te invitaron al grupo', groupGone: 'Este enlace de invitación ya no funciona.',
   },
   en: {
     round: 'Open round', event: 'Foursome event', spots: n => `${n} ${n === 1 ? 'spot' : 'spots'} open`,
     full: 'Full', hcp: 'Handicap', open: 'Open in Foursome', get: 'Get the app',
     gone: 'This round or event is no longer available.', price: 'Price',
     blurb: 'Foursome helps golfers find people to play with.',
+    group: "You're invited to join", groupGone: 'This invite link no longer works.',
   },
 };
 
@@ -62,7 +64,7 @@ function registerSharePages(app, { supabase, ah, DEMO_USER_IDS, eventJson }) {
   // Lets iOS open /r/… and /e/… links in the app (Universal Links).
   app.get('/.well-known/apple-app-site-association', (req, res) => {
     res.type('application/json').send(JSON.stringify({
-      applinks: { apps: [], details: [{ appID: APPLE_APP_ID, paths: ['/r/*', '/e/*'] }] },
+      applinks: { apps: [], details: [{ appID: APPLE_APP_ID, paths: ['/r/*', '/e/*', '/g/*'] }] },
     }));
   });
 
@@ -133,6 +135,22 @@ function registerSharePages(app, { supabase, ah, DEMO_USER_IDS, eventJson }) {
     ].filter(Boolean);
     res.set('Cache-Control', 'no-store').send(page(lang, {
       title: `${t.round}: ${row.course}`, lines, appLink: `foursomemobile://round/${encodeURIComponent(row.id)}`,
+    }));
+  }));
+
+  // Group invite: /g/<invite code>. Opening it in the app joins the group.
+  app.get('/g/:code', ah(async (req, res) => {
+    const lang = pickLang(req);
+    const t = T[lang];
+    const { data: g } = await supabase.from('groups').select('*').eq('invite_code', req.params.code).maybeSingle()
+      .then(r => r, () => ({ data: null }));
+    if (!g || g.removed_at || DEMO_USER_IDS.has(g.creator_id)) {
+      return res.status(404).send(page(lang, { title: 'Foursome', lines: [t.groupGone], appLink: null }));
+    }
+    const where = places.fields(g.course_lat, g.course_lng, lang).placeFull;
+    const lines = [g.home_course + (where ? ` · ${where}` : ''), g.description || null].filter(Boolean);
+    res.set('Cache-Control', 'no-store').send(page(lang, {
+      title: `${t.group}: ${g.name}`, lines, appLink: `foursomemobile://invite/${encodeURIComponent(g.invite_code)}`,
     }));
   }));
 

@@ -99,6 +99,22 @@ const ERRORS_ES = {
   'We couldn’t start your refund — try again, or contact us': 'No pudimos iniciar tu reembolso. Intentá de nuevo o escribinos',
   'Could not load attendees': 'No se pudo cargar la lista de asistentes',
   "That contains language we don't allow — please rephrase and try again.": 'Eso tiene lenguaje que no permitimos. Reformulalo e intentá de nuevo.',
+  'Groups aren’t set up yet': 'Los grupos todavía no están activados',
+  'This group no longer exists': 'Este grupo ya no existe',
+  'Only the group’s creator can do that': 'Solo quien creó el grupo puede hacer eso',
+  'Only members can see this': 'Solo los miembros pueden ver esto',
+  'Only members can post to this group': 'Solo los miembros pueden publicar en este grupo',
+  'Give the group a name (up to 60 characters)': 'Ponele nombre al grupo (hasta 60 caracteres)',
+  'Description is too long (300 characters max)': 'La descripción es muy larga (máximo 300 caracteres)',
+  'You’ve created the most groups allowed (10)': 'Ya creaste la cantidad máxima de grupos (10)',
+  'This invite link no longer works': 'Este enlace de invitación ya no funciona',
+  'You can’t join this group': 'No podés unirte a este grupo',
+  'You created this group — delete it instead': 'Vos creaste este grupo; podés eliminarlo',
+  'You can’t remove yourself': 'No te podés sacar a vos mismo',
+  'Pick a day, a time and the number of spots': 'Elegí el día, la hora y la cantidad de espacios',
+  'Only the host or the group’s creator can do that': 'Solo el anfitrión o quien creó el grupo puede hacer eso',
+  "action must be 'approve', 'deny' or 'remove'": 'Acción no válida',
+  'name and text are required': 'Escribí un mensaje',
 };
 
 // A few messages with numbers in them.

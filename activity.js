@@ -32,12 +32,13 @@ function registerActivity(app, { supabase, ah, verifiedUserId, haversineMiles, p
     // Open rounds in the next 7 days within 100 km (by the round's own
     // location, or its course's).
     const today = new Date();
-    const { data: rounds } = await supabase.from('teetimes').select('id, host_id, course, lat, lng, date, open_spots, status')
+    const { data: rounds } = await supabase.from('teetimes').select('*')
       .neq('status', 'cancelled').gt('open_spots', 0).gte('date', isoDay(new Date(today.getTime() - 24 * 3600e3)))
       .lte('date', isoDay(new Date(today.getTime() + 7 * 24 * 3600e3)));
     let openRounds = 0;
     for (const rd of rounds || []) {
       if (DEMO_USER_IDS.has(rd.host_id)) continue;
+      if (rd.group_id && !rd.open_to_all) continue; // members-only group round
       const at = rd.lat != null && rd.lng != null ? { lat: rd.lat, lng: rd.lng } : peekHome(rd.course);
       if (at && km(origin, at) <= RADIUS_KM) openRounds++;
     }

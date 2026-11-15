@@ -59,6 +59,19 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 const { makePhotos } = require('./photos');
 const photos = makePhotos({ supabase });
 photos.start();
+// Groups (groups.js). Its helpers are function declarations further down.
+const { makeGroups } = require('./groups');
+const groups = makeGroups({
+  supabase, places, photoOf: userId => photos.photoOf(userId),
+  getUser: id => getUser(id), isBanned: id => isBanned(id), BANNED_ERROR: { error: 'Your account has been suspended.' },
+  moderateFields, getBlockedUserIds: id => getBlockedUserIds(id), idsBlockedBy: id => idsBlockedBy(id),
+  getBannedUserIds: () => getBannedUserIds(), notifyUser: (...a) => notifyUser(...a),
+  geocodeCourse: (n, b) => geocodeCourse(n, b), haversineMiles: (...a) => haversineMiles(...a),
+  get DEMO_USER_IDS() { return DEMO_USER_IDS; },
+  buildTeetimeResponse: (row, viewer) => buildTeetimeResponse(row, viewer),
+  insertRound: f => insertRound(f), cancelRoundRow: row => cancelRoundRow(row),
+  newRoundForEveryone: row => { if (notifier) notifier.newRound(row); },
+});
 
 async function getUser(userId) {
   const { data, error } = await supabase.from('users').select('*').eq('user_id', userId).maybeSingle();
@@ -696,6 +709,13 @@ app.delete('/api/account', ah(async (req, res) => {
 
   // Their profile photo file goes too (the users row is deleted below).
   await photos.remove(userId).catch(() => {});
+  // Their groups, group memberships and group chat messages.
+  try {
+    await groups.deleteUserData(userId);
+  } catch (e) {
+    console.error('Failed to delete group data:', e.message);
+    return res.status(500).json({ error: 'Could not delete account data' });
+  }
 
   // Paid events first: refund upcoming paid spots and remove the name from
   // payment records (kept for bookkeeping).
@@ -839,23 +859,19 @@ app.get('/api/teetimes', ah(async (req, res) => {
     blockedIds = await getBlockedUserIds(viewerId);
     if (blockedIds.size) visibleRows = visibleRows.filter(r => !blockedIds.has(r.host_id));
   }
-  res.json(await Promise.all(visibleRows.map(r => buildTeetimeResponse(r, viewerId, blockedIds))));
+  // Group rounds: members only until they're opened to everyone (groups.js).
+  const vis = await groups.visibility(viewerId);
+  visibleRows = visibleRows.filter(r => groups.roundVisible(r, viewerId, vis));
+  res.json(await Promise.all(visibleRows.map(async r => ({
+    ...(await buildTeetimeResponse(r, viewerId, blockedIds)),
+    ...groups.roundGroupFields(r, vis),
+  }))));
 }));
 
-app.post('/api/teetimes', ah(async (req, res) => {
-  const { hostName, hostHandicap, course, date, time, totalSpots, hcpRange, pace, notes } = req.body;
-  const hostId = verifiedUserId(req);
-  if (!hostId) return res.status(401).json({ error: 'Sign in required' });
-  if (!hostId || !hostName || !course || !date || !time || !totalSpots) {
-    return res.status(400).json({ error: 'Missing required fields' });
-  }
-  const modError = moderateFields([hostName, course, hcpRange, notes]);
-  if (modError) return res.status(400).json(modError);
-  if (await isBanned(hostId)) return res.status(403).json(BANNED_ERROR);
-
+// Saves a new round (POST /api/teetimes, and groups.js's weekly rounds).
+async function insertRound({ hostId, hostName, hostHandicap, course, geo, date, time, totalSpots, hcpRange, pace, notes, groupId, openToAll }) {
   const id = 'tt_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-  const geo = await geocodeCourse(course, req.body); // null if not found — round still posts, just without distance
-  const { data: row, error } = await supabase.from('teetimes').insert({
+  const fields = {
     id,
     host_id: hostId,
     host_name: hostName,
@@ -872,10 +888,59 @@ app.post('/api/teetimes', ah(async (req, res) => {
     notes: notes || '',
     requests: [],
     viewed_by: [],
-    created_at: Date.now()
-  }).select().single();
-  if (error) return res.status(500).json({ error: 'Could not create tee time' });
-  if (notifier) notifier.newRound(row); // in the background (notify.js)
+    created_at: Date.now(),
+    // Only sent for group rounds, so normal rounds work before supabase-groups.sql.
+    ...(groupId ? { group_id: groupId, open_to_all: !!openToAll } : {}),
+  };
+  const { data: row, error } = await supabase.from('teetimes').insert(fields).select().single();
+  if (error) throw error;
+  return row;
+}
+
+// Cancels a round and tells its players (the host's Cancel, and a removed group).
+async function cancelRoundRow(row) {
+  (row.requests || [])
+    .filter(r => r.status === 'approved' || r.status === 'pending')
+    .forEach(r => {
+      notifyUser(r.userId, lang => push(lang, 'roundCancelled', { course: row.course, date: row.date })).catch(() => {});
+    });
+  await supabase.from('messages').delete().eq('teetime_id', row.id);
+  await supabase.from('teetimes').update({ status: 'cancelled' }).eq('id', row.id);
+}
+
+app.post('/api/teetimes', ah(async (req, res) => {
+  const { hostName, hostHandicap, course, date, time, totalSpots, hcpRange, pace, notes } = req.body;
+  const hostId = verifiedUserId(req);
+  if (!hostId) return res.status(401).json({ error: 'Sign in required' });
+  if (!hostId || !hostName || !course || !date || !time || !totalSpots) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+  const modError = moderateFields([hostName, course, hcpRange, notes]);
+  if (modError) return res.status(400).json(modError);
+  if (await isBanned(hostId)) return res.status(403).json(BANNED_ERROR);
+
+  // Posting to a group: members only.
+  const groupId = req.body.groupId ? String(req.body.groupId) : null;
+  if (groupId) {
+    let me = null;
+    try { me = await groups.membershipOf(groupId, hostId); } catch (e) {
+      return res.status(503).json({ error: 'Groups aren’t set up yet' });
+    }
+    if (!me || me.status !== 'member') return res.status(403).json({ error: 'Only members can post to this group' });
+  }
+
+  const geo = await geocodeCourse(course, req.body); // null if not found — round still posts, just without distance
+  let row;
+  try {
+    row = await insertRound({ hostId, hostName, hostHandicap, course, geo, date, time, totalSpots, hcpRange, pace, notes, groupId, openToAll: !!req.body.openToAll });
+  } catch (e) {
+    console.error('Could not create tee time:', e.message);
+    return res.status(500).json({ error: 'Could not create tee time' });
+  }
+  // In the background: nearby golfers (notify.js) once it's open to
+  // everyone, and the group's members (groups.js).
+  if (notifier && (!row.group_id || row.open_to_all)) notifier.newRound(row);
+  if (row.group_id) groups.newGroupRound(row);
   res.json(await buildTeetimeResponse(row, verifiedUserId(req)));
 }));
 
@@ -887,7 +952,7 @@ app.post('/api/teetimes/:id/request', ah(async (req, res) => {
   if (error) return res.status(500).json({ error: 'Could not load tee time' });
   if (!row) return res.status(404).json({ error: 'Not found' });
   if (await isBanned(userId)) return res.status(403).json(BANNED_ERROR);
-  if (await isBlocked(userId, row.host_id) || isDemoMismatch(userId, row.host_id)) {
+  if (await isBlocked(userId, row.host_id) || isDemoMismatch(userId, row.host_id) || !(await groups.canJoinRound(row, userId))) {
     return res.status(403).json({ error: "You can't request to join this round" });
   }
   const requests = row.requests || [];
@@ -981,16 +1046,7 @@ app.delete('/api/teetimes/:id', ah(async (req, res) => {
   if (error) return res.status(500).json({ error: 'Could not load tee time' });
   if (!row) return res.status(404).json({ error: 'Not found' });
   if (row.host_id !== userId) return res.status(403).json({ error: 'Only the host can cancel this round' });
-
-  const requests = row.requests || [];
-  requests
-    .filter(r => r.status === 'approved' || r.status === 'pending')
-    .forEach(r => {
-      notifyUser(r.userId, lang => push(lang, 'roundCancelled', { course: row.course, date: row.date })).catch(() => {});
-    });
-
-  await supabase.from('messages').delete().eq('teetime_id', req.params.id);
-  await supabase.from('teetimes').update({ status: 'cancelled' }).eq('id', req.params.id);
+  await cancelRoundRow(row);
   res.json({ ok: true });
 }));
 
@@ -1294,9 +1350,19 @@ app.delete('/api/blocks/:blockedId', ah(async (req, res) => {
 app.post('/api/reports', ah(async (req, res) => {
   const userId = verifiedUserId(req);
   if (!userId) return res.status(401).json({ error: 'Sign in required' });
-  const { reason, messageId, photo } = req.body;
+  const { reason, messageId, photo, groupId, groupMessageId } = req.body;
   let { reportedId } = req.body;
   if (!reason || !reason.trim()) return res.status(400).json({ error: 'reason is required' });
+
+  // A group's name/description, or a group chat message (groups.js).
+  let groupReport = null;
+  if (groupId || groupMessageId != null) {
+    try { groupReport = await groups.reportTarget({ groupId, groupMessageId }, userId); } catch (e) {
+      return res.status(503).json({ error: 'Groups aren’t set up yet' });
+    }
+    if (groupReport.error) return res.status(groupReport.status).json({ error: groupReport.error });
+    reportedId = groupReport.reportedId;
+  }
 
   let message = null;
   if (messageId != null) {
@@ -1312,12 +1378,21 @@ app.post('/api/reports', ah(async (req, res) => {
   }
 
   if (!reportedId) return res.status(400).json({ error: 'reportedId or messageId is required' });
-  if (userId === reportedId) return res.status(400).json({ error: "You can't report yourself" });
+  if (userId === reportedId && !groupReport) return res.status(400).json({ error: "You can't report yourself" });
   const cleanReason = reason.trim().slice(0, 500);
   const base = { reporter_id: userId, reported_id: reportedId, reason: cleanReason, created_at: Date.now() };
 
   let error;
-  if (photo) {
+  if (groupReport) {
+    const what = groupReport.groupMessageId != null ? 'Reported group chat message' : 'Reported group name/description';
+    ({ error } = await supabase.from('user_reports').insert({
+      ...base, group_id: groupReport.groupId, message_text: groupReport.text,
+      ...(groupReport.groupMessageId != null ? { group_message_id: groupReport.groupMessageId } : {}),
+    }));
+    if (error && /group_id|group_message_id|message_text|column|schema cache/i.test(error.message || '')) {
+      ({ error } = await supabase.from('user_reports').insert({ ...base, reason: `${cleanReason}\n\n${what} (group ${groupReport.groupId}): "${groupReport.text}"` }));
+    }
+  } else if (photo) {
     // A profile photo: keep the address of the photo as it was reported.
     const photoUrl = photos.photoOf(reportedId);
     if (!photoUrl) return res.status(400).json({ error: 'This person has no photo' });
@@ -1850,16 +1925,16 @@ app.get('/api/golf-courses/search', ah(async (req, res) => {
 }));
 
 // --- Paid events (see events.js) ------------------------------------------
-photos.registerRoutes(app, {
-  ah, verifiedUserId, isBanned, BANNED_ERROR,
-  requireOwner: (req, res) => {
-    if (isEventAdmin(req)) return true;
-    res.status(req.authUser ? 403 : 401).json({ error: 'Only the Foursome owner can do that' });
-    return false;
-  },
-});
+function ownerOnly(req, res) {
+  if (isEventAdmin(req)) return true;
+  res.status(req.authUser ? 403 : 401).json({ error: 'Only the Foursome owner can do that' });
+  return false;
+}
+photos.registerRoutes(app, { ah, verifiedUserId, isBanned, BANNED_ERROR, requireOwner: ownerOnly });
 notifier = makeNotifier({ supabase, notifyUser, geocodeCourse, haversineMiles, DEMO_USER_IDS });
 notifier.start();
+groups.registerRoutes(app, { ah, verifiedUserId, requireOwner: ownerOnly });
+groups.start();
 attendance = registerAttendance(app, { supabase, ah, verifiedUserId, DEMO_USER_IDS });
 registerActivity(app, { supabase, ah, verifiedUserId, haversineMiles, peekHome: name => notifier.peekHome(name), DEMO_USER_IDS, whenLabel });
 registerEventRoutes(app, {
@@ -1868,6 +1943,8 @@ registerEventRoutes(app, {
   notifyNewEvent: row => notifier.newEvent(row),
   DEMO_USER_IDS,
   photoOf: photos.photoOf,
+  groupsForDashboard: () => groups.dashboardList(),
+  groupNames: ids => groups.groupNames(ids),
 });
 eventPayments.registerRoutes(app);
 registerSharePages(app, { supabase, ah, DEMO_USER_IDS, eventJson });
