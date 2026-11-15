@@ -115,6 +115,11 @@ const ERRORS_ES = {
   'Only the host or the group’s creator can do that': 'Solo el anfitrión o quien creó el grupo puede hacer eso',
   "action must be 'approve', 'deny' or 'remove'": 'Acción no válida',
   'name and text are required': 'Escribí un mensaje',
+  'Friends aren’t set up yet': 'Los amigos todavía no están activados',
+  'That’s you': 'Esa persona sos vos',
+  'You can’t add this person as a friend': 'No podés agregar a esta persona como amigo',
+  'You can add people as friends after playing a round or an event together': 'Podés agregar amigos después de jugar juntos una ronda o un evento',
+  "action must be 'add', 'accept', 'decline' or 'remove'": 'Acción no válida',
 };
 
 // A few messages with numbers in them.

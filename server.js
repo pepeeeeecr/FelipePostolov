@@ -72,6 +72,13 @@ const groups = makeGroups({
   insertRound: f => insertRound(f), cancelRoundRow: row => cancelRoundRow(row),
   newRoundForEveryone: row => { if (notifier) notifier.newRound(row); },
 });
+// Friends (friends.js).
+const { makeFriends } = require('./friends');
+const friends = makeFriends({
+  supabase, photoOf: userId => photos.photoOf(userId), getUser: id => getUser(id),
+  getBlockedUserIds: id => getBlockedUserIds(id), getBannedUserIds: () => getBannedUserIds(),
+  notifyUser: (...a) => notifyUser(...a),
+});
 
 async function getUser(userId) {
   const { data, error } = await supabase.from('users').select('*').eq('user_id', userId).maybeSingle();
@@ -225,6 +232,7 @@ async function toProfileJson(row, viewerId) {
   if (viewerId && viewerId !== row.user_id) {
     json.mutualRounds = await getPlayedTogetherCount(viewerId, row.user_id);
     json.blockedByMe = await blockedByViewer(viewerId, row.user_id);
+    json.friendStatus = await friends.statusBetween(viewerId, row.user_id);
   }
   return json;
 }
@@ -709,9 +717,10 @@ app.delete('/api/account', ah(async (req, res) => {
 
   // Their profile photo file goes too (the users row is deleted below).
   await photos.remove(userId).catch(() => {});
-  // Their groups, group memberships and group chat messages.
+  // Their groups, group memberships, group chat messages and friendships.
   try {
     await groups.deleteUserData(userId);
+    await friends.deleteUserData(userId);
   } catch (e) {
     console.error('Failed to delete group data:', e.message);
     return res.status(500).json({ error: 'Could not delete account data' });
@@ -941,6 +950,12 @@ app.post('/api/teetimes', ah(async (req, res) => {
   // everyone, and the group's members (groups.js).
   if (notifier && (!row.group_id || row.open_to_all)) notifier.newRound(row);
   if (row.group_id) groups.newGroupRound(row);
+  // Friends invited when posting (friends.js checks they're friends).
+  if (Array.isArray(req.body.inviteFriendIds) && req.body.inviteFriendIds.length) {
+    try {
+      row.invited_ids = await friends.inviteToRound(row, hostName, req.body.inviteFriendIds);
+    } catch (e) { console.error('Inviting friends failed:', e.message); }
+  }
   res.json(await buildTeetimeResponse(row, verifiedUserId(req)));
 }));
 
@@ -1329,6 +1344,7 @@ app.post('/api/blocks', ah(async (req, res) => {
   const { error } = await supabase.from('blocks')
     .upsert({ blocker_id: userId, blocked_id: blockedId, created_at: Date.now() }, { onConflict: 'blocker_id,blocked_id' });
   if (error) return res.status(500).json({ error: 'Could not block user' });
+  await friends.onBlock(userId, blockedId); // blocked people can't be friends
   res.json({ ok: true });
 }));
 
@@ -1934,6 +1950,7 @@ photos.registerRoutes(app, { ah, verifiedUserId, isBanned, BANNED_ERROR, require
 notifier = makeNotifier({ supabase, notifyUser, geocodeCourse, haversineMiles, DEMO_USER_IDS });
 notifier.start();
 groups.registerRoutes(app, { ah, verifiedUserId, requireOwner: ownerOnly });
+friends.registerRoutes(app, { ah, verifiedUserId, isBanned, BANNED_ERROR });
 groups.start();
 attendance = registerAttendance(app, { supabase, ah, verifiedUserId, DEMO_USER_IDS });
 registerActivity(app, { supabase, ah, verifiedUserId, haversineMiles, peekHome: name => notifier.peekHome(name), DEMO_USER_IDS, whenLabel });

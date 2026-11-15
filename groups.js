@@ -114,6 +114,7 @@ function makeGroups(deps) {
     if (row.host_id === viewerId) return true;
     if (viewerId && (row.requests || []).some(r => r.userId === viewerId)) return true;
     if (!vis.names.has(row.group_id)) return false; // group removed
+    if (viewerId && (row.invited_ids || []).includes(viewerId)) return true; // a friend invited them
     return !!row.open_to_all || vis.memberOf.has(row.group_id);
   }
   function roundGroupFields(row, vis) {
@@ -124,6 +125,7 @@ function makeGroups(deps) {
 
   async function canJoinRound(row, userId) {
     if (!row.group_id || row.open_to_all || row.host_id === userId) return true;
+    if ((row.invited_ids || []).includes(userId)) return true;
     const m = await membershipOf(row.group_id, userId).catch(() => null);
     return !!(m && m.status === 'member');
   }
