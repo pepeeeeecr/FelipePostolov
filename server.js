@@ -661,6 +661,21 @@ app.use(translateErrors);
 eventPayments.registerWebhook(app);
 
 app.use(express.json({ limit: '1mb' })); // profile photos arrive as ~50 KB of base64
+// The old address's web pages forward to the domain (foursomecr.com).
+// Everything apps and services call stays put: /api, Universal Links
+// (/.well-known), calendar files (.ics), ONVO's /pay/return, /health and
+// static files. 302, not 301, so it can be changed without browsers
+// remembering it.
+const OLD_HOST = 'felipepostolov.onrender.com';
+const NEW_ORIGIN = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
+const FORWARDED_PAGE = /^\/(|privacy|terms|refund|support|delete-account)$|^\/(r|e|g|c)\/[^.]+$/;
+app.use((req, res, next) => {
+  if ((req.method === 'GET' || req.method === 'HEAD') && NEW_ORIGIN && !NEW_ORIGIN.includes(OLD_HOST) &&
+      req.hostname === OLD_HOST && FORWARDED_PAGE.test(req.path)) {
+    return res.redirect(302, NEW_ORIGIN + req.originalUrl);
+  }
+  next();
+});
 app.use(express.static(path.join(__dirname, 'public')));
 
 // --- Auth -----------------------------------------------------------------
