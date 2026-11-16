@@ -16,6 +16,11 @@
   :root{
     --fairway:#16281B; --fairway-2:#1F3826; --turf:#3E7249; --sand:#C9A25C;
     --paper:#F6F3EC; --ink:#1C2A1F; --line:rgba(28,42,31,.12);
+    /* The header's curved bottom edge, and the clear space kept between
+       it and the App Store button. The header's bottom padding is always
+       both added together, so the button can never reach the curve. */
+    --curve:clamp(28px,4.5vw,64px); --curve-clear:clamp(28px,3vw,40px);
+    --after-curve:12px; /* curve → first card, at every size */
   }
   *{box-sizing:border-box}
   html,body{margin:0}
@@ -23,8 +28,8 @@
   .serif{font-family:Georgia,"Times New Roman",serif}
 
   /* Hero */
-  .hero{position:relative;overflow:hidden;background:radial-gradient(120% 90% at 50% 0%,var(--fairway-2) 0%,var(--fairway) 60%,#0F1D13 100%);color:var(--paper);padding:max(20px,env(safe-area-inset-top)) 20px 72px;text-align:center}
-  .hero::after{content:"";position:absolute;inset:auto -10% -1px -10%;height:90px;background:var(--paper);border-radius:50% 50% 0 0/100% 100% 0 0}
+  .hero{position:relative;overflow:hidden;background:radial-gradient(120% 90% at 50% 0%,var(--fairway-2) 0%,var(--fairway) 60%,#0F1D13 100%);color:var(--paper);padding:max(20px,env(safe-area-inset-top)) 20px calc(var(--curve) + var(--curve-clear));text-align:center}
+  .hero::after{content:"";position:absolute;inset:auto -10% -1px -10%;height:var(--curve);background:var(--paper);border-radius:50% 50% 0 0/100% 100% 0 0}
   .contours{position:absolute;inset:0;opacity:.07;pointer-events:none}
   .topbar{position:relative;z-index:2;display:flex;justify-content:flex-end;max-width:960px;margin:0 auto}
   .lang{display:inline-flex;border:1px solid rgba(246,243,236,.25);border-radius:999px;padding:3px}
@@ -42,14 +47,14 @@
   .cta.soon svg{fill:var(--sand)}
 
   /* Confirmation notice (from a sign-up email link) */
-  .notice{position:relative;z-index:3;max-width:560px;margin:-28px auto 0;padding:16px 18px;border-radius:16px;background:#fff;border:1px solid var(--line);box-shadow:0 12px 30px rgba(22,40,27,.12);display:none;text-align:left}
+  .notice{position:relative;z-index:3;max-width:560px;margin:var(--after-curve) auto 0;padding:16px 18px;border-radius:16px;background:#fff;border:1px solid var(--line);box-shadow:0 12px 30px rgba(22,40,27,.12);display:none;text-align:left}
   .notice.show{display:block}
   .notice b{display:block;font-size:15px;margin-bottom:4px}
   .notice p{margin:0;font-size:14px;line-height:1.5;opacity:.8}
   .notice a{color:var(--turf);font-weight:600}
 
   /* Features */
-  main{max-width:960px;margin:0 auto;padding:40px 20px 24px}
+  main{max-width:960px;margin:0 auto;padding:var(--after-curve) 20px 24px}
   .features{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
   .card{background:#fff;border:1px solid var(--line);border-radius:20px;padding:24px 22px}
   .icon{width:46px;height:46px;border-radius:14px;background:var(--fairway);display:grid;place-items:center;margin-bottom:16px}
@@ -69,11 +74,8 @@
 
   @media (max-width:760px){
     .features{grid-template-columns:1fr;gap:12px}
-    .hero{padding-bottom:40px}
-    .hero::after{height:36px}
     .cta{margin-top:24px}
-    main{padding-top:12px}
-    .notice{margin-top:-12px;margin-bottom:12px}
+    .notice{margin-left:20px;margin-right:20px}
     .hero-inner{margin-top:28px}
     footer{justify-content:center;text-align:center}
     footer nav{justify-content:center}
