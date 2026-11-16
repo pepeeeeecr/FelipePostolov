@@ -66,10 +66,19 @@ function whenLabel(date, tz, lang = 'en') {
 
 const ACTIVE_HOLD = r => r.status === 'held' && r.hold_expires_at && new Date(r.hold_expires_at) > new Date();
 
-function eventJson(row, regs, { haversineMiles, lat, lng, lang = 'en' } = {}) {
+// A payment can cover several spots (a group, see eventExtras.js).
+const SPOTS = r => Math.max(1, Number(r.spots) || 1);
+const sumSpots = list => list.reduce((n, r) => n + SPOTS(r), 0);
+
+// offers: user ids with a waitlist spot kept for them (eventExtras.js);
+// viewerId's own isn't counted against them.
+function eventJson(row, regs, { haversineMiles, lat, lng, lang = 'en', offers = [], viewerId = null } = {}) {
   const start = new Date(row.starts_at);
   const confirmed = regs.filter(r => r.status === 'confirmed');
   const held = regs.filter(ACTIVE_HOLD);
+  const busy = new Set([...confirmed, ...held].map(r => r.user_id));
+  const kept = offers.filter(u => u !== viewerId && !busy.has(u)).length;
+  const photos = Array.isArray(row.results_photos) ? row.results_photos : [];
   const json = {
     id: row.id,
     title: row.title,
@@ -87,8 +96,10 @@ function eventJson(row, regs, { haversineMiles, lat, lng, lang = 'en' } = {}) {
     cancelCutoffHours: row.cancel_cutoff_hours,
     status: row.status,
     isPast: start <= new Date(),
-    goingCount: confirmed.length,
-    spotsLeft: Math.max(0, row.max_players - confirmed.length - held.length),
+    goingCount: sumSpots(confirmed),
+    spotsLeft: Math.max(0, row.max_players - sumSpots(confirmed) - sumSpots(held) - kept),
+    // Results and photos the owner posted after the event.
+    results: row.results_posted_at || photos.length ? { text: row.results_text || '', photos, postedAt: row.results_posted_at } : null,
     ...places.fields(row.lat, row.lng, lang),
   };
   if (haversineMiles && lat != null && lng != null && row.lat != null && row.lng != null) {
@@ -104,7 +115,7 @@ function registerEventRoutes(app, deps) {
     if (eventIds.length === 0) return new Map();
     const { data, error } = await supabase
       .from('event_registrations')
-      .select('event_id, user_id, user_name, status, hold_expires_at, checkout_url, created_at, amount_colones')
+      .select('*')
       .in('event_id', eventIds);
     if (error) throw error;
     const byEvent = new Map(eventIds.map(id => [id, []]));
@@ -139,8 +150,20 @@ function registerEventRoutes(app, deps) {
     if (error) return res.status(500).json({ error: 'Could not load events' });
     await fillMissingCoordinates(rows || []);
     const regs = await registrationsFor((rows || []).map(r => r.id));
+    const offers = deps.extras ? await deps.extras.activeOffers((rows || []).map(r => r.id)) : new Map();
+    const viewerId = verifiedUserId(req);
     const here = Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : {};
-    res.json({ events: (rows || []).map(r => eventJson(r, regs.get(r.id), { haversineMiles, ...here, lang: req.lang })) });
+    // Past events (last 90 days) with results or photos posted.
+    let recent = [];
+    const { data: past, error: pastErr } = await supabase.from('events').select('*').eq('status', 'open')
+      .lte('starts_at', new Date().toISOString()).gte('starts_at', new Date(Date.now() - 90 * 24 * 3600e3).toISOString())
+      .order('starts_at', { ascending: false }).limit(20);
+    if (!pastErr) recent = (past || []).filter(r => r.results_posted_at || (r.results_photos || []).length).slice(0, 10);
+    const pastRegs = await registrationsFor(recent.map(r => r.id));
+    res.json({
+      events: (rows || []).map(r => eventJson(r, regs.get(r.id), { haversineMiles, ...here, lang: req.lang, offers: offers.get(r.id) || [], viewerId })),
+      recent: recent.map(r => eventJson(r, pastRegs.get(r.id), { lang: req.lang })),
+    });
   }));
 
   // One event. Signed-in users see who's going; guests only see the count.
@@ -152,10 +175,22 @@ function registerEventRoutes(app, deps) {
     const lng = parseFloat(req.query.lng);
     const regs = (await registrationsFor([row.id])).get(row.id);
     const here = Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : {};
-    const json = eventJson(row, regs, { haversineMiles, ...here, lang: req.lang });
     const viewerId = verifiedUserId(req);
+    const offers = deps.extras ? (await deps.extras.activeOffers([row.id])).get(row.id) || [] : [];
+    const json = eventJson(row, regs, { haversineMiles, ...here, lang: req.lang, offers, viewerId });
     const mine = viewerId ? regs.find(r => r.user_id === viewerId && ['held', 'confirmed', 'refund_pending'].includes(r.status)) : null;
     json.myStatus = mine ? (mine.status === 'held' && !ACTIVE_HOLD(mine) ? null : mine.status) : null;
+    // My payment: spots, guests (and which were refunded), what I paid.
+    if (mine && json.myStatus) {
+      const refunded = new Set((mine.guest_refunds || []).filter(g => g.status !== 'failed').map(g => g.index));
+      json.myBooking = {
+        spots: SPOTS(mine), amountColones: mine.amount_colones, discountColones: mine.discount_colones || 0,
+        guests: (mine.guest_names || []).map((name, index) => ({ index, name, refunded: refunded.has(index) })),
+        guestShareColones: Math.floor(Number(mine.amount_colones) / ((mine.guest_names || []).length + 1)),
+      };
+    }
+    // Waitlist: whether I'm on it (and my place), or a spot is kept for me.
+    if (deps.extras && req.authUser) json.myWaitlist = await deps.extras.myWaitlist(row.id, viewerId);
     // Your own unfinished payment, so the app can reopen the same page.
     if (mine && json.myStatus === 'held' && mine.checkout_url) json.myHold = { checkoutUrl: mine.checkout_url, holdExpiresAt: mine.hold_expires_at };
     if (req.authUser) {
@@ -163,7 +198,7 @@ function registerEventRoutes(app, deps) {
       json.attendees = regs
         .filter(r => r.status === 'confirmed' && !blocked.has(r.user_id))
         .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-        .map(r => ({ userId: r.user_id, name: r.user_name, photoUrl: deps.photoOf ? deps.photoOf(r.user_id) : null }));
+        .map(r => ({ userId: r.user_id, name: r.user_name, photoUrl: deps.photoOf ? deps.photoOf(r.user_id) : null, guests: SPOTS(r) - 1 }));
     }
     res.json(json);
   }));
@@ -270,7 +305,7 @@ function registerEventRoutes(app, deps) {
     const parsed = parseEventInput(req.body);
     if (parsed.error) return res.status(400).json({ error: parsed.error });
     const regs = (await registrationsFor([existing.id])).get(existing.id);
-    const taken = regs.filter(r => r.status === 'confirmed' || ACTIVE_HOLD(r)).length;
+    const taken = sumSpots(regs.filter(r => r.status === 'confirmed' || ACTIVE_HOLD(r)));
     const anyPaid = regs.some(r => ['confirmed', 'refund_pending', 'refunded'].includes(r.status) || ACTIVE_HOLD(r));
     if (anyPaid && parsed.value.price_colones !== existing.price_colones) {
       return res.status(400).json({ error: 'People have already paid, so the price can’t change. Cancel and re-create the event instead.' });
@@ -379,7 +414,7 @@ function registerEventRoutes(app, deps) {
       const paid = list.filter(r => r.status === 'confirmed');
       return {
         id: ev.id, title: ev.title, course: ev.course, whenLabel: whenLabel(new Date(ev.starts_at), ev.time_zone, req.lang),
-        sold: paid.length, maxPlayers: ev.max_players,
+        sold: sumSpots(paid), maxPlayers: ev.max_players,
         revenueColones: paid.reduce((sum, r) => sum + (Number(r.amount_colones) || ev.price_colones), 0),
       };
     });

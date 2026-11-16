@@ -24,6 +24,20 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// What's left of a payment after guest refunds (see refundGuest).
+function remainingColones(reg) {
+  const taken = (Array.isArray(reg.guest_refunds) ? reg.guest_refunds : [])
+    .filter(g => g.status !== 'failed').reduce((sum, g) => sum + (Number(g.amountColones) || 0), 0);
+  return Math.max(0, Number(reg.amount_colones) - taken);
+}
+
+// One spot's share of a group payment: the total split evenly (the buyer's
+// own spot takes any odd colón).
+function guestShareColones(reg) {
+  const bought = (reg.guest_names || []).length + 1;
+  return Math.floor(Number(reg.amount_colones) / bought);
+}
+
 function makePayments(deps) {
   const { supabase } = deps;
 
@@ -49,7 +63,7 @@ function makePayments(deps) {
       return { error: 'No ONVO payment to refund' };
     }
     try {
-      const refund = await onvo.createRefund({ paymentIntentId: claimed.payment_intent_id, amountColones: claimed.amount_colones });
+      const refund = await onvo.createRefund({ paymentIntentId: claimed.payment_intent_id, amountColones: remainingColones(claimed) });
       await supabase.from('event_registrations').update({ refund_id: refund.id, updated_at: new Date().toISOString() }).eq('id', regId);
       return { refundId: refund.id };
     } catch (e) {
@@ -103,6 +117,9 @@ function makePayments(deps) {
         const reg = (obj.id && await loadRegistration({ refund_id: obj.id }))
           || (obj.paymentIntentId && await loadRegistration({ payment_intent_id: obj.paymentIntentId }));
         if (!reg) return;
+        // One guest's refund: mark just that guest.
+        if (await settleGuestRefund(reg, obj, 'refunded')) return;
+        if (reg.refund_id !== obj.id && reg.status !== 'refund_pending') return; // not a refund of the whole payment
         await supabase.from('event_registrations')
           .update({ status: 'refunded', refunded_at: new Date().toISOString(), refund_id: obj.id || reg.refund_id, refund_error: null, updated_at: new Date().toISOString() })
           .eq('id', reg.id);
@@ -113,6 +130,8 @@ function makePayments(deps) {
           || (obj.paymentIntentId && await loadRegistration({ payment_intent_id: obj.paymentIntentId }));
         if (!reg) return;
         const why = (obj.failure && obj.failure.message) || obj.failureReason || 'Refund failed';
+        if (await settleGuestRefund(reg, obj, 'failed', why)) return;
+        if (reg.refund_id !== obj.id && reg.status !== 'refund_pending') return;
         // refund_id cleared so the owner can retry it.
         await supabase.from('event_registrations')
           .update({ refund_id: null, refund_error: String(why).slice(0, 300), updated_at: new Date().toISOString() })
@@ -123,6 +142,56 @@ function makePayments(deps) {
         // payment_intent.failed / .canceled: nothing to do — the hold stays
         // until it runs out, so the player can try another card.
         return;
+    }
+  }
+
+  // A refund webhook about one guest's refund: updates that guest's entry.
+  // A failed one gives the spot back to the buyer (they can try again).
+  async function settleGuestRefund(reg, obj, outcome, why) {
+    const refundId = obj.id;
+    const list = Array.isArray(reg.guest_refunds) ? reg.guest_refunds : [];
+    let i = refundId ? list.findIndex(g => g.refundId === refundId) : -1;
+    // The webhook can beat us saving ONVO's refund id: match by amount.
+    if (i < 0) i = list.findIndex(g => g.refundId === 'requesting' && Math.round(g.amountColones * 100) === Number(obj.amount));
+    if (i < 0) return false;
+    const next = list.map((g, j) => (j === i ? { ...g, refundId: refundId || g.refundId, status: outcome, ...(why ? { error: String(why).slice(0, 200) } : {}) } : g));
+    const update = { guest_refunds: next, updated_at: new Date().toISOString() };
+    if (outcome === 'failed' && list[i].status !== 'failed') {
+      update.spots = (reg.spots || 1) + 1;
+      update.refund_error = `Guest refund failed: ${String(why).slice(0, 200)}`;
+    }
+    await supabase.from('event_registrations').update(update).eq('id', reg.id);
+    return true;
+  }
+
+  // Refund one guest of a group payment (before the cutoff): their spot is
+  // freed and their share goes back. index: position in guest_names.
+  async function refundGuest(reg, index) {
+    const name = (reg.guest_names || [])[index];
+    if (name == null) return { status: 404, error: 'Guest not found' };
+    const done = Array.isArray(reg.guest_refunds) ? reg.guest_refunds : [];
+    if (done.some(g => g.index === index && g.status !== 'failed')) return { status: 409, error: 'That guest was already refunded' };
+    if ((reg.spots || 1) < 2) return { status: 409, error: 'That guest was already refunded' };
+    if (!reg.payment_intent_id) return { status: 409, error: 'No ONVO payment to refund' };
+    const amount = guestShareColones(reg);
+    const entry = { index, name, amountColones: amount, refundId: 'requesting', status: 'pending', at: new Date().toISOString() };
+    // Claim: only if nothing changed since we read it.
+    const { data: claimed, error } = await supabase.from('event_registrations')
+      .update({ spots: reg.spots - 1, guest_refunds: [...done.filter(g => g.index !== index), entry], updated_at: new Date().toISOString() })
+      .eq('id', reg.id).eq('spots', reg.spots).eq('status', 'confirmed').select('*').maybeSingle();
+    if (error) throw error;
+    if (!claimed) return { status: 409, error: 'Something changed — try again' };
+    try {
+      const refund = await onvo.createRefund({ paymentIntentId: reg.payment_intent_id, amountColones: amount });
+      const { data: now } = await supabase.from('event_registrations').select('guest_refunds').eq('id', reg.id).maybeSingle();
+      const list = ((now && now.guest_refunds) || claimed.guest_refunds || []).map(g => (g.index === index && g.refundId === 'requesting' ? { ...g, refundId: refund.id } : g));
+      await supabase.from('event_registrations').update({ guest_refunds: list }).eq('id', reg.id);
+      return { status: 200, amountColones: amount };
+    } catch (e) {
+      console.error(`Guest refund for registration ${reg.id} failed:`, e.message);
+      await supabase.from('event_registrations')
+        .update({ spots: reg.spots, guest_refunds: done, updated_at: new Date().toISOString() }).eq('id', reg.id);
+      return { status: 502, error: 'We couldn’t start your refund — try again, or contact us' };
     }
   }
 
@@ -188,9 +257,27 @@ function makePayments(deps) {
       const user = await getUser(userId);
       const userName = (user && user.name) || (req.authUser.email || '').split('@')[0] || 'Player';
 
-      const { data: rows, error: rpcError } = await supabase.rpc('reserve_event_spot', {
+      // Paying for a group (2–4 spots, guests' names) and discount codes
+      // need supabase-event-extras.sql; one spot without a code works either way.
+      const spots = Math.round(Number(req.body.spots) || 1);
+      const guestNames = (Array.isArray(req.body.guestNames) ? req.body.guestNames : []).map(n => String(n || '').trim().slice(0, 60));
+      const code = String(req.body.code || '').trim().slice(0, 30);
+      if (spots < 1 || spots > 4) return res.status(400).json({ error: 'You can pay for 1 to 4 spots' });
+      if (guestNames.length !== spots - 1 || guestNames.some(n => !n)) return res.status(400).json({ error: 'Add a name for each guest' });
+      if (deps.moderateFields) {
+        const modError = deps.moderateFields(guestNames);
+        if (modError) return res.status(400).json(modError);
+      }
+      let { data: rows, error: rpcError } = await supabase.rpc('reserve_event_spots', {
         p_event_id: Number(req.params.id), p_user_id: userId, p_user_name: userName, p_hold_minutes: HOLD_MINUTES,
+        p_spots: spots, p_guest_names: guestNames, p_code: code || null,
       });
+      if (rpcError && /reserve_event_spots|function|schema cache/i.test(rpcError.message || '')) {
+        if (spots > 1 || code) return res.status(503).json({ error: 'Group payments and codes aren’t set up yet' });
+        ({ data: rows, error: rpcError } = await supabase.rpc('reserve_event_spot', {
+          p_event_id: Number(req.params.id), p_user_id: userId, p_user_name: userName, p_hold_minutes: HOLD_MINUTES,
+        }));
+      }
       if (rpcError) {
         console.error('reserve_event_spot failed:', rpcError.message);
         return res.status(500).json({ error: 'Could not hold a spot — try again' });
@@ -199,6 +286,9 @@ function makePayments(deps) {
       if (result === 'not_found') return res.status(404).json({ error: 'Event not found' });
       if (result === 'closed') return res.status(409).json({ error: 'This event is no longer open' });
       if (result === 'full') return res.status(409).json({ error: 'Sorry — this event just filled up', code: 'full' });
+      if (result === 'not_enough') return res.status(409).json({ error: 'There aren’t that many spots left', code: 'not_enough' });
+      if (result === 'bad_code') return res.status(400).json({ error: 'That code isn’t valid', code: 'bad_code' });
+      if (result === 'code_used_up') return res.status(400).json({ error: 'That code has been used up', code: 'bad_code' });
       if (result === 'confirmed') return res.json({ status: 'confirmed' });
       if (result === 'refund_pending') return res.json({ status: 'refund_pending' });
 
@@ -210,10 +300,11 @@ function makePayments(deps) {
       const { data: ev } = await supabase.from('events').select('*').eq('id', reg.event_id).single();
       const back = `${PUBLIC_BASE_URL}/pay/return?r=${reg.id}&app=${encodeURIComponent(appReturn)}`;
       let session;
+      const spotsText = (reg.spots || 1) > 1 ? ` (${reg.spots} ${req.lang === 'en' ? 'spots' : 'espacios'})` : '';
       try {
         session = await onvo.createCheckoutSession({
           amountColones: reg.amount_colones,
-          description: `${ev.title} — ${ev.course}, ${whenLabel(new Date(ev.starts_at), ev.time_zone, req.lang)}`.slice(0, 250),
+          description: `${ev.title}${spotsText} — ${ev.course}, ${whenLabel(new Date(ev.starts_at), ev.time_zone, req.lang)}`.slice(0, 250),
           customerEmail: req.authUser.email,
           customerName: userName,
           redirectUrl: back,
@@ -295,11 +386,26 @@ function makePayments(deps) {
       res.json({ ok: true, refunding: true });
     }));
 
+    // The buyer refunds one guest (before the cutoff).
+    app.post('/api/events/:id/cancel-guest', ah(async (req, res) => {
+      if (!req.authUser) return res.status(403).json({ error: 'Log in to manage your spot', code: 'account_required' });
+      const { data: ev } = await supabase.from('events').select('*').eq('id', req.params.id).maybeSingle();
+      if (!ev) return res.status(404).json({ error: 'Event not found' });
+      const { data: reg } = await supabase.from('event_registrations').select('*')
+        .eq('event_id', ev.id).eq('user_id', req.authUser.id).eq('status', 'confirmed')
+        .order('id', { ascending: false }).limit(1).maybeSingle();
+      if (!reg) return res.status(404).json({ error: 'You don’t have a spot in this event' });
+      if (!beforeCutoff(ev)) return res.status(409).json({ error: 'It’s past the cancellation cutoff for this event, so it can’t be refunded' });
+      const out = await refundGuest(reg, Math.round(Number(req.body.index)));
+      if (out.error) return res.status(out.status).json({ error: out.error });
+      res.json({ ok: true, amountColones: out.amountColones });
+    }));
+
     // The owner's list of paid attendees (and anyone mid-refund) for an event.
     app.get('/api/admin/events/:id/attendees', ah(async (req, res) => {
       if (!deps.isEventAdmin(req)) return res.status(req.authUser ? 403 : 401).json({ error: 'Only the Foursome owner can do that' });
       const { data, error } = await supabase.from('event_registrations')
-        .select('id, user_id, user_name, status, amount_colones, paid_at, refund_error, refunded_at, created_at')
+        .select('*')
         .eq('event_id', req.params.id).in('status', ['confirmed', 'refund_pending', 'refunded'])
         .order('paid_at', { ascending: true });
       if (error) return res.status(500).json({ error: 'Could not load attendees' });
@@ -307,6 +413,8 @@ function makePayments(deps) {
         attendees: (data || []).map(r => ({
           id: r.id, userId: r.user_id, name: r.user_name, status: r.status, amountColones: r.amount_colones,
           paidAt: r.paid_at, refundError: r.refund_error, refundedAt: r.refunded_at,
+          spots: r.spots || 1, guestNames: r.guest_names || [], discountColones: r.discount_colones || 0,
+          guestRefunds: (r.guest_refunds || []).map(g => ({ name: g.name, amountColones: g.amountColones, status: g.status })),
         })),
       });
     }));
@@ -366,7 +474,7 @@ function makePayments(deps) {
     await supabase.from('event_requests').delete().eq('user_id', userId);
   }
 
-  return { registerWebhook, registerRoutes, sweepExpiredHolds, refundRegistration, cancelEventWithRefunds, handleAccountDeletion, HOLD_MINUTES };
+  return { registerWebhook, registerRoutes, sweepExpiredHolds, refundRegistration, refundGuest, cancelEventWithRefunds, handleAccountDeletion, HOLD_MINUTES, _handleEvent: handleEvent };
 }
 
-module.exports = { makePayments, HOLD_MINUTES };
+module.exports = { makePayments, HOLD_MINUTES, remainingColones, guestShareColones };

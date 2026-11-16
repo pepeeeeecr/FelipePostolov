@@ -646,7 +646,7 @@ function resolveUserId(req, bodyUserId) {
 
 // Paid-event payments (ONVO). Built here, near the top, because its
 // webhook route has to be registered before the JSON body parser.
-const eventPayments = makePayments({ supabase, ah, getUser, isBanned, BANNED_ERROR, isEventAdmin, notifyUser });
+const eventPayments = makePayments({ supabase, ah, getUser, isBanned, BANNED_ERROR, isEventAdmin, notifyUser, moderateFields });
 
 // --- Middleware ---------------------------------------------------------
 app.use(cors()); // relax to your real domain before a public launch
@@ -1954,7 +1954,13 @@ friends.registerRoutes(app, { ah, verifiedUserId, isBanned, BANNED_ERROR });
 groups.start();
 attendance = registerAttendance(app, { supabase, ah, verifiedUserId, DEMO_USER_IDS });
 registerActivity(app, { supabase, ah, verifiedUserId, haversineMiles, peekHome: name => notifier.peekHome(name), DEMO_USER_IDS, whenLabel });
+// Waitlist, discount codes, price quotes, results and photos (eventExtras.js).
+const { makeEventExtras } = require('./eventExtras');
+const { localToInstant } = require('./events');
+const eventExtras = makeEventExtras({ supabase, notifyUser, isEventAdmin, localToInstant, getUser });
+eventExtras.registerRoutes(app, { ah, verifiedUserId });
 registerEventRoutes(app, {
+  extras: eventExtras,
   supabase, ah, verifiedUserId, geocodeCourse, haversineMiles, idsBlockedBy,
   isBanned, BANNED_ERROR, moderateFields, getUser, sendAdminEmail,
   notifyNewEvent: row => notifier.newEvent(row),
@@ -1966,7 +1972,11 @@ registerEventRoutes(app, {
 eventPayments.registerRoutes(app);
 registerSharePages(app, { supabase, ah, DEMO_USER_IDS, eventJson });
 // Release spots whose 20-minute hold ran out, every minute.
-setInterval(() => { eventPayments.sweepExpiredHolds().catch(e => console.error('Hold sweep error:', e.message)); }, 60 * 1000);
+// Then offer freed spots to the waitlist.
+setInterval(async () => {
+  await eventPayments.sweepExpiredHolds().catch(e => console.error('Hold sweep error:', e.message));
+  await eventExtras.processWaitlists().catch(e => console.error('Waitlist error:', e.message));
+}, 60 * 1000);
 
 // Final error handler — catches anything ah() forwarded (e.g. a Supabase
 // query error) so it becomes a normal 500 response instead of crashing

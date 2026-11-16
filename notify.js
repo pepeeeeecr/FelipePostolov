@@ -220,8 +220,8 @@ function makeNotifier(deps) {
       .gt('starts_at', new Date(now).toISOString()).lt('starts_at', new Date(now + 31 * 24 * 3600e3).toISOString());
     if (error) throw error;
     for (const ev of events || []) {
-      const { data: regs } = await supabase.from('event_registrations').select('status, hold_expires_at').eq('event_id', ev.id);
-      const taken = (regs || []).filter(r => r.status === 'confirmed' || ACTIVE_HOLD(r)).length;
+      const { data: regs } = await supabase.from('event_registrations').select('*').eq('event_id', ev.id);
+      const taken = (regs || []).filter(r => r.status === 'confirmed' || ACTIVE_HOLD(r)).reduce((n, r) => n + Math.max(1, Number(r.spots) || 1), 0);
       const spotsLeft = Math.max(0, ev.max_players - taken);
       if (spotsLeft === 0) continue;
       const untilStart = new Date(ev.starts_at).getTime() - now;

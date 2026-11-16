@@ -162,7 +162,7 @@ function registerSharePages(app, { supabase, ah, DEMO_USER_IDS, eventJson }) {
       return res.status(404).send(page(lang, { title: 'Foursome', lines: [t.gone], appLink: null }));
     }
     const { data: regs } = await supabase.from('event_registrations')
-      .select('event_id, user_id, user_name, status, hold_expires_at, checkout_url, created_at').eq('event_id', row.id);
+      .select('*').eq('event_id', row.id);
     const ev = eventJson(row, regs || [], { lang });
     const lines = [
       ev.placeFull ? `${row.course} · ${ev.placeFull}` : row.course,

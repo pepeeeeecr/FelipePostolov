@@ -54,7 +54,10 @@ function makeFakeSupabase(tables, { unique = {}, missingColumns = {} } = {}) {
         if (i >= 0) rows()[i] = { ...rows()[i], ...p }; else rows().push({ ...p });
         return { data: p, error: null };
       }
-      if (op === 'update') { match.forEach(r => Object.assign(r, payload)); return { data: match, error: null }; }
+      if (op === 'update') {
+        match.forEach(r => Object.assign(r, payload));
+        return { data: single ? (match[0] || null) : match, error: null };
+      }
       if (op === 'delete') { tables[name] = rows().filter(r => !match.includes(r)); return { data: null, error: null }; }
       const data = limitN != null ? match.slice(0, limitN) : match;
       if (opts.head) return { data: null, count: match.length, error: null };
