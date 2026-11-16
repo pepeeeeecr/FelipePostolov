@@ -138,6 +138,7 @@ const ERRORS_ES = {
   'You can post results once the event has started': 'Podés publicar resultados cuando el evento ya empezó',
   'Results are too long (4,000 characters max)': 'Los resultados son muy largos (máximo 4.000 caracteres)',
   'That’s the most photos for one event (12)': 'Ese es el máximo de fotos por evento (12)',
+  'Partner courses aren’t set up yet': 'Los campos aliados todavía no están activados',
   'Friends aren’t set up yet': 'Los amigos todavía no están activados',
   'That’s you': 'Esa persona sos vos',
   'You can’t add this person as a friend': 'No podés agregar a esta persona como amigo',

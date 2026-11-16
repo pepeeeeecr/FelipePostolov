@@ -1951,6 +1951,9 @@ notifier = makeNotifier({ supabase, notifyUser, geocodeCourse, haversineMiles, D
 notifier.start();
 groups.registerRoutes(app, { ah, verifiedUserId, requireOwner: ownerOnly });
 friends.registerRoutes(app, { ah, verifiedUserId, isBanned, BANNED_ERROR });
+// Partner course pages and QR posters (partners.js).
+require('./partners').makePartners({ supabase, DEMO_USER_IDS, getBannedUserIds, geocodeCourse })
+  .registerRoutes(app, { ah, requireOwner: ownerOnly });
 groups.start();
 attendance = registerAttendance(app, { supabase, ah, verifiedUserId, DEMO_USER_IDS });
 registerActivity(app, { supabase, ah, verifiedUserId, haversineMiles, peekHome: name => notifier.peekHome(name), DEMO_USER_IDS, whenLabel });
