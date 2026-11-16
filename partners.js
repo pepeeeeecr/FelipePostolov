@@ -15,7 +15,7 @@ const places = require('./places');
 const { pickLang } = require('./i18n');
 
 const PUBLIC_URL = process.env.PUBLIC_URL || 'https://felipepostolov.onrender.com';
-const APP_STORE_URL = 'https://apps.apple.com/app/id6831230794';
+const { appStoreButton } = require('./appStore');
 const NEAR_KM = 2; // a round or event within 2 km counts as at the course
 const NOT_READY = 'Partner courses aren’t set up yet';
 const tableMissing = e => !!e && /partner_courses|does not exist|schema cache|relation/i.test(e.message || '');
@@ -118,7 +118,7 @@ a.card{display:block;background:#fff;border:1px solid rgba(28,42,31,.12);border-
 ${events.length ? `<h2>${esc(t.events)}</h2>${eventCards}` : ''}
 <h2>${esc(t.rounds)}</h2>${rounds.length ? roundCards : `<p class="muted">${esc(t.none)}</p>`}
 <a class="btn primary" href="${esc(appLink(p))}">${esc(t.open)}</a>
-<a class="btn ghost" href="${APP_STORE_URL}">${esc(t.get)}</a>
+${appStoreButton(lang, 'display:block;text-align:center;padding:14px;border-radius:12px;font-weight:600;text-decoration:none;margin-top:10px;border:1px solid #2E5E3A;color:#2E5E3A')}
 <p class="muted" style="text-align:center;margin-top:22px">${esc(t.blurb)}</p></div>`;
       res.set('Cache-Control', 'no-store').send(shell(lang, p.name, body, { description: t.tagline }));
     }));

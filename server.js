@@ -1204,8 +1204,8 @@ function renderLegalPage(title, innerHtml, effectiveDate = legal.LEGAL_EFFECTIVE
 <body>
 <div class="wrap">
   <div class="nav">${es
-    ? '<a href="/privacy">Política de Privacidad</a><a href="/terms">Términos del Servicio</a><a href="/refund">Política de Reembolsos</a><a href="/support">Soporte</a>'
-    : '<a href="/privacy">Privacy Policy</a><a href="/terms">Terms of Service</a><a href="/refund">Refund Policy</a><a href="/support">Support</a>'}</div>
+    ? '<a href="/">Foursome</a><a href="/privacy">Política de Privacidad</a><a href="/terms">Términos del Servicio</a><a href="/refund">Política de Reembolsos</a><a href="/support">Soporte</a><a href="/delete-account">Eliminar cuenta</a>'
+    : '<a href="/">Foursome</a><a href="/privacy">Privacy Policy</a><a href="/terms">Terms of Service</a><a href="/refund">Refund Policy</a><a href="/support">Support</a><a href="/delete-account">Delete account</a>'}</div>
   <h1>${legalEscapeHtml(title)}</h1>
   <div class="effective">${es ? 'Vigente desde el' : 'Effective'} ${legalEscapeHtml(effectiveDate)}</div>
   ${innerHtml}
@@ -1227,6 +1227,53 @@ app.get('/terms', (req, res) => {
 app.get('/refund', (req, res) => {
   if (req.lang === 'es') return res.send(renderLegalPage('Política de Reembolsos', renderLegalSections(legalEs.REFUND_SECTIONS), legalEs.LEGAL_EFFECTIVE_DATE, 'es'));
   res.send(renderLegalPage('Refund Policy', renderLegalSections(legal.REFUND_SECTIONS)));
+});
+
+// --- Home (landing page) and account deletion ---------------------------------
+// The website is just a landing page now; Foursome is an app. The App Store
+// button says "Coming soon" until APP_STORE_LIVE=true (appStore.js).
+const { APP_STORE_URL, APP_STORE_LIVE, APP_STORE_TEXT } = require('./appStore');
+const APPLE_GLYPH = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M16.37 12.5c-.02-2.07 1.69-3.07 1.77-3.12-.97-1.41-2.47-1.6-3-1.62-1.27-.13-2.49.75-3.13.75-.65 0-1.64-.73-2.7-.71-1.38.02-2.66.81-3.37 2.05-1.45 2.5-.37 6.2 1.03 8.23.69.99 1.5 2.1 2.57 2.06 1.04-.04 1.43-.66 2.68-.66 1.24 0 1.6.66 2.69.64 1.11-.02 1.81-1 2.49-2 .79-1.15 1.11-2.27 1.13-2.33-.03-.01-2.16-.83-2.16-3.29zM14.32 6.43c.57-.69.95-1.64.85-2.6-.82.04-1.82.55-2.41 1.24-.53.61-.99 1.59-.87 2.53.92.07 1.85-.47 2.43-1.17z"/></svg>';
+const landingTemplate = require('fs').readFileSync(path.join(__dirname, 'views', 'landing.html'), 'utf8');
+const landingCta = APP_STORE_LIVE
+  ? `<a class="cta" href="${APP_STORE_URL}">${APPLE_GLYPH}<span><span data-lang="es">${APP_STORE_TEXT.es.live}</span><span data-lang="en">${APP_STORE_TEXT.en.live}</span></span></a>`
+  : `<div class="cta soon" aria-disabled="true">${APPLE_GLYPH}<span><span data-lang="es">${APP_STORE_TEXT.es.soon}</span><span data-lang="en">${APP_STORE_TEXT.en.soon}</span></span></div>`;
+const landingHtml = landingTemplate.replace('{{APP_STORE_CTA}}', landingCta);
+app.get('/', (req, res) => {
+  res.set('Cache-Control', 'no-cache').type('html').send(landingHtml);
+});
+
+// How to delete an account (also the "account deletion URL" app stores ask for).
+app.get('/delete-account', (req, res) => {
+  const mail = legalEscapeHtml(legal.ADMIN_EMAIL);
+  if (req.lang === 'es') {
+    return res.send(renderLegalPage('Eliminar su cuenta', `
+    <section>
+      <h2>Desde la app</h2>
+      <p>Abra Foursome y vaya a <b>Ajustes &gt; Eliminar cuenta</b>, escriba DELETE y confirme. Es inmediato y permanente.</p>
+    </section>
+    <section>
+      <h2>Qué se elimina</h2>
+      <p>Su perfil y foto, las rondas que organizó y sus chats, los grupos que creó, sus amistades, sus calificaciones, sus notificaciones y bloqueos y, si inició sesión, su cuenta de acceso. Cualquier evento próximo que haya pagado se le reembolsa completo. Los registros de pago se conservan para la contabilidad, con su nombre reemplazado por “Usuario eliminado”.</p>
+    </section>
+    <section>
+      <h2>Si no puede usar la app</h2>
+      <p>Escríbanos a <a href="mailto:${mail}?subject=Eliminar%20mi%20cuenta">${mail}</a> desde el correo de su cuenta, con el asunto “Eliminar mi cuenta”. Le confirmamos por correo cuando esté hecho.</p>
+    </section>`, legalEs.LEGAL_EFFECTIVE_DATE, 'es'));
+  }
+  res.send(renderLegalPage('Delete your account', `
+    <section>
+      <h2>In the app</h2>
+      <p>Open Foursome and go to <b>Settings &gt; Delete account</b>, type DELETE and confirm. It's immediate and permanent.</p>
+    </section>
+    <section>
+      <h2>What's deleted</h2>
+      <p>Your profile and photo, the rounds you've hosted and their chat, the groups you created, your friendships, your ratings, your notifications and blocks and, if you signed in, your login. Any upcoming event you paid for is refunded in full. Payment records are kept for bookkeeping, with your name replaced by “Deleted user”.</p>
+    </section>
+    <section>
+      <h2>If you can't use the app</h2>
+      <p>Email <a href="mailto:${mail}?subject=Delete%20my%20account">${mail}</a> from your account's email address with the subject “Delete my account”. We'll email you when it's done.</p>
+    </section>`));
 });
 
 app.get('/support', (req, res) => {

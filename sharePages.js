@@ -7,7 +7,7 @@
 
 const { whenLabel } = require('./events');
 
-const APP_STORE_URL = 'https://apps.apple.com/app/id6831230794';
+const { APP_STORE_URL, appStoreButton } = require('./appStore');
 const APPLE_APP_ID = 'C8S8FTV64A.com.felipepostolov.foursome'; // Team ID + bundle ID
 
 const { pickLang } = require('./i18n');
@@ -55,7 +55,7 @@ function page(lang, { title, lines, appLink, description }) {
 ${lines.map(l => `<p style="margin:4px 0;font-size:15px;opacity:.8;">${esc(l)}</p>`).join('')}
 </div>
 ${appLink ? `<a href="${esc(appLink)}" style="display:block;margin-top:20px;background:#2E5E3A;color:#fff;text-decoration:none;padding:14px;border-radius:12px;font-weight:600;">${t.open}</a>` : ''}
-<a href="${APP_STORE_URL}" style="display:block;margin-top:10px;border:1px solid #2E5E3A;color:#2E5E3A;text-decoration:none;padding:13px;border-radius:12px;font-weight:600;">${t.get}</a>
+${appStoreButton(lang, 'display:block;margin-top:10px;border:1px solid #2E5E3A;color:#2E5E3A;text-decoration:none;padding:13px;border-radius:12px;font-weight:600;')}
 <p style="margin-top:22px;font-size:13px;opacity:.6;">${t.blurb}</p>
 </div></body></html>`;
 }
