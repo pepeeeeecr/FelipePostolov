@@ -68,7 +68,12 @@
   html[lang="es"] [data-lang="es"], html[lang="en"] [data-lang="en"]{display:revert}
 
   @media (max-width:760px){
-    .features{grid-template-columns:1fr}
+    .features{grid-template-columns:1fr;gap:12px}
+    .hero{padding-bottom:40px}
+    .hero::after{height:36px}
+    .cta{margin-top:24px}
+    main{padding-top:12px}
+    .notice{margin-top:-12px;margin-bottom:12px}
     .hero-inner{margin-top:28px}
     footer{justify-content:center;text-align:center}
     footer nav{justify-content:center}
