@@ -56,6 +56,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
   auth: { persistSession: false }
 });
 // Profile photos (photos.js): photos.photoOf(userId) is used all over.
+const appleRevoke = require('./appleRevoke');
 const { makePhotos } = require('./photos');
 const photos = makePhotos({ supabase });
 photos.start();
@@ -732,6 +733,16 @@ app.delete('/api/account', ah(async (req, res) => {
   const userId = verifiedUserId(req);
   if (!userId) return res.status(401).json({ error: 'Sign in required' });
 
+  // Signed in with Apple: revoke Foursome's access at Apple (Apple requires
+  // it). The app sends a fresh authorization code; deletion goes ahead even
+  // if Apple can't be reached.
+  const appleIdentity = req.authUser && (req.authUser.identities || []).some(i => i.provider === 'apple');
+  if (appleIdentity) {
+    const out = await appleRevoke.revokeWithAuthorizationCode(req.body && req.body.appleAuthorizationCode);
+    if (out.revoked) console.log('Account deletion: Apple access revoked.');
+    else console.warn('Account deletion: Apple access NOT revoked:', out.reason);
+  }
+
   // Their profile photo file goes too (the users row is deleted below).
   await photos.remove(userId).catch(() => {});
   // Their groups, group memberships, group chat messages and friendships.
@@ -1171,7 +1182,9 @@ app.post('/api/teetimes/:id/messages', ah(async (req, res) => {
   res.json(messages);
 }));
 
-app.get('/health', (req, res) => res.json({ ok: true }));
+// appleKey: whether the Sign in with Apple key is set up ('ok' | 'missing' |
+// 'unreadable') — never the key itself.
+app.get('/health', (req, res) => res.json({ ok: true, appleKey: appleRevoke.appleKeyStatus() }));
 
 // --- Public legal/support pages -------------------------------------------
 // Plain server-rendered HTML — reachable at a stable URL with no JS
