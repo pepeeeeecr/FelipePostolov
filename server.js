@@ -310,6 +310,8 @@ async function notifyUser(userId, title, body, opts = {}) {
 // only whether one was found and how long it is (to catch "pasted the
 // wrong thing" without ever printing a usable secret).
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
+// Sent from our own domain (verified in Resend). EMAIL_FROM overrides it.
+const EMAIL_FROM_ADDRESS = process.env.EMAIL_FROM || 'avisos@foursomecr.com';
 if (RESEND_API_KEY) {
   console.log(`notifyAdminOfReport: RESEND_API_KEY detected at boot (${RESEND_API_KEY.length} chars) — report emails enabled.`);
 } else {
@@ -327,7 +329,7 @@ async function notifyAdminOfReport(reporterId, reportedId, reason, message = nul
       method: 'POST',
       headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from: 'Foursome Reports <onboarding@resend.dev>',
+        from: `Foursome Reports <${EMAIL_FROM_ADDRESS}>`,
         to: [legal.ADMIN_EMAIL],
         subject: message ? 'Nuevo reporte de mensaje en Foursome / New message report' : 'Nuevo reporte de usuario en Foursome / New user report',
         text: [
@@ -379,7 +381,7 @@ async function sendAdminEmail(subject, lines) {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: 'Foursome <onboarding@resend.dev>', to: [legal.ADMIN_EMAIL], subject, text: lines.join('\n') }),
+      body: JSON.stringify({ from: `Foursome <${EMAIL_FROM_ADDRESS}>`, to: [legal.ADMIN_EMAIL], subject, text: lines.join('\n') }),
     });
     if (!res.ok) console.error(`sendAdminEmail: Resend rejected "${subject}" — HTTP ${res.status}: ${await res.text().catch(() => '')}`);
   } catch (e) {
