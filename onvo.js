@@ -67,6 +67,22 @@ function createRefund({ paymentIntentId, amountColones }) {
   return onvoRequest('POST', '/refunds', { paymentIntentId, amount: Math.round(amountColones * 100) });
 }
 
+// How a payment was made: 'card', 'mobile_number' (SINPE Móvil), … or
+// null if ONVO doesn't say. Read from the payment intent (its paymentMethod,
+// or by looking up its paymentMethodId).
+async function paymentMethodType(paymentIntentId) {
+  const intent = await onvoRequest('GET', `/payment-intents/${encodeURIComponent(paymentIntentId)}`);
+  const pm = intent && intent.paymentMethod;
+  if (pm && typeof pm === 'object' && pm.type) return String(pm.type);
+  const pmId = (intent && intent.paymentMethodId) || (typeof pm === 'string' ? pm : null);
+  if (!pmId) return null;
+  const method = await onvoRequest('GET', `/payment-methods/${encodeURIComponent(pmId)}`);
+  return method && method.type ? String(method.type) : null;
+}
+
+// ONVO's answer when asked to refund something that isn't a card payment.
+const isNotRefundableByApi = e => /not valid for a refund|only card payment methods/i.test(String((e && e.message) || ''));
+
 // X-Onvo-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of "t.rawBody">
 // (two v1 values while a secret is being rotated). Rejects anything older
 // than 5 minutes. rawBody must be the exact bytes received.
@@ -87,5 +103,6 @@ function verifyWebhookSignature(rawBody, header, now = Date.now()) {
 module.exports = {
   onvoConfigured, onvoMode, OnvoError,
   createCheckoutSession, expireCheckoutSession, createRefund, verifyWebhookSignature,
+  paymentMethodType, isNotRefundableByApi,
   webhookSecretSet: !!WEBHOOK_SECRET,
 };

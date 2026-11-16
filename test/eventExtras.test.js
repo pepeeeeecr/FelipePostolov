@@ -119,3 +119,61 @@ test('a failed guest refund gives the spot back', async () => {
   assert.strictEqual(db.event_registrations[0].status, 'confirmed', 'the payment itself is untouched');
   assert.strictEqual(db.event_registrations[0].guest_refunds[0].status, 'failed');
 });
+
+test('SINPE Móvil numbers', () => {
+  const { cleanPhone } = require('../eventPayments');
+  assert.strictEqual(cleanPhone('8888 1234'), '8888-1234');
+  assert.strictEqual(cleanPhone('+506 7012-3456'), '7012-3456');
+  assert.strictEqual(cleanPhone('1234'), null);
+  assert.strictEqual(cleanPhone('19998888'), null, 'CR numbers start with 2–8');
+});
+
+function sinpeSetup(reg) {
+  const db = { event_registrations: [reg], manual_refunds: [], events: [{ id: 1, status: 'open', starts_at: inDays(5) }] };
+  const pushes = [];
+  const payments = makePayments({ supabase: makeFakeSupabase(db), ah: fn => fn, notifyUser: async (u, m) => { pushes.push({ u, text: m('en')[1] }); } });
+  return { db, payments, pushes };
+}
+
+test('SINPE Móvil: refunded by hand, then marked as sent', async () => {
+  const original = onvo.createRefund;
+  let calls = 0;
+  onvo.createRefund = async () => { calls++; return { id: 'x' }; };
+  try {
+    const { db, payments, pushes } = sinpeSetup({ id: 5, event_id: 1, user_id: 'ana', user_name: 'Ana', status: 'confirmed', spots: 1, guest_names: [], guest_refunds: [],
+      amount_colones: 25000, payment_intent_id: 'pi_s', payment_method: 'mobile_number', refund_id: null });
+    const out = await payments.refundRegistration(5, { phone: '8888 1234' });
+    assert.deepStrictEqual(out, { manual: true, amountColones: 25000 });
+    assert.strictEqual(calls, 0, 'ONVO is never asked');
+    assert.strictEqual(db.event_registrations[0].status, 'refund_manual');
+    assert.strictEqual(db.manual_refunds[0].phone, '8888-1234');
+    assert.strictEqual(db.manual_refunds[0].amount_colones, 25000);
+
+    await payments.markManualRefundSent(db.manual_refunds[0].id);
+    assert.strictEqual(db.event_registrations[0].status, 'refunded');
+    assert.strictEqual(db.manual_refunds[0].status, 'sent');
+    assert.ok(pushes[0].text.includes('₡25,000') && pushes[0].text.includes('8888-1234'));
+    assert.strictEqual((await payments.markManualRefundSent(db.manual_refunds[0].id)).status, 409, 'not twice');
+  } finally { onvo.createRefund = original; }
+});
+
+test('unknown method: ONVO says only cards, so it goes by hand (guest and whole payment)', async () => {
+  const original = onvo.createRefund;
+  onvo.createRefund = async () => { throw new Error('ONVO POST /refunds failed (HTTP 400): The payment method type is not valid for a refund. Only card payment methods can be refunded.'); };
+  try {
+    const { db, payments } = sinpeSetup({ id: 6, event_id: 1, user_id: 'ana', user_name: 'Ana', status: 'confirmed', spots: 2, guest_names: ['Beto'], guest_refunds: [],
+      amount_colones: 50000, payment_intent_id: 'pi_u', payment_method: null, refund_id: null });
+    const g = await payments.refundGuest({ ...db.event_registrations[0] }, 0);
+    assert.strictEqual(g.manual, true);
+    assert.strictEqual(db.event_registrations[0].spots, 1, 'the guest’s spot is free right away');
+    assert.strictEqual(db.event_registrations[0].guest_refunds[0].status, 'manual');
+    assert.strictEqual(db.event_registrations[0].payment_method, 'mobile_number', 'remembered');
+
+    const whole = await payments.refundRegistration(6);
+    assert.deepStrictEqual(whole, { manual: true, amountColones: 25000 }, 'only what is left');
+    assert.deepStrictEqual(db.manual_refunds.map(r => [r.kind, r.amount_colones]), [['guest', 25000], ['payment', 25000]]);
+
+    await payments.markManualRefundSent(db.manual_refunds[0].id);
+    assert.strictEqual(db.event_registrations[0].guest_refunds[0].status, 'refunded');
+  } finally { onvo.createRefund = original; }
+});

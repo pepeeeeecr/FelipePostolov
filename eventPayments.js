@@ -24,6 +24,14 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// A Costa Rica SINPE Móvil number: 8 digits (a +506 in front is dropped).
+// Returns '8888-8888', or null if it isn't one.
+function cleanPhone(raw) {
+  let d = String(raw || '').replace(/\D/g, '');
+  if (d.length === 11 && d.startsWith('506')) d = d.slice(3);
+  return /^[2-8]\d{7}$/.test(d) ? `${d.slice(0, 4)}-${d.slice(4)}` : null;
+}
+
 // What's left of a payment after guest refunds (see refundGuest).
 function remainingColones(reg) {
   const taken = (Array.isArray(reg.guest_refunds) ? reg.guest_refunds : [])
@@ -48,29 +56,72 @@ function makePayments(deps) {
     return data;
   }
 
-  // Full refund of one paid registration. Claims the row first so two
-  // callers (say a webhook retry and the owner cancelling) can't both
-  // refund it. The final result arrives by refund.* webhook.
-  async function refundRegistration(regId) {
+  // --- SINPE Móvil refunds by hand ---------------------------------------------
+  // ONVO only refunds card payments through its API. A SINPE Móvil payment is
+  // refunded by the owner, by hand: a manual_refunds row is the to-do item,
+  // and the player confirms the number to send it to.
+  const isSinpe = reg => reg.payment_method === 'mobile_number';
+
+  async function addManualRefund(reg, { kind, amountColones, guestIndex = null, guestName = null, phone = null }) {
+    const { data, error } = await supabase.from('manual_refunds').insert({
+      registration_id: reg.id, event_id: reg.event_id, user_id: reg.user_id, user_name: reg.user_name || '',
+      kind, guest_index: guestIndex, guest_name: guestName, amount_colones: amountColones, phone: cleanPhone(phone), status: 'to_send', sent_at: null,
+    }).select('*').maybeSingle();
+    if (error) throw error;
+    return data;
+  }
+
+  // Full refund of one paid registration (what's left of it after guest
+  // refunds). Claims the row first so two callers (say a webhook retry and
+  // the owner cancelling) can't both refund it. Cards: ONVO, and the result
+  // arrives by refund.* webhook. SINPE Móvil: a refund to send by hand
+  // (status refund_manual); returns { manual: true, amountColones }.
+  async function refundRegistration(regId, { phone = null } = {}) {
     const { data: claimed, error: claimError } = await supabase.from('event_registrations')
       .update({ refund_id: 'requesting', refund_error: null, status: 'refund_pending', updated_at: new Date().toISOString() })
       .eq('id', regId).is('refund_id', null).in('status', ['confirmed', 'refund_pending'])
       .select('*').maybeSingle();
     if (claimError) throw claimError;
     if (!claimed) return { skipped: true };
+    const amount = remainingColones(claimed);
+    const byHand = async () => {
+      try {
+        await addManualRefund(claimed, { kind: 'payment', amountColones: amount, phone });
+      } catch (e) {
+        console.error(`Could not record the SINPE Móvil refund for registration ${regId} (run supabase-sinpe-refunds.sql):`, e.message);
+        await supabase.from('event_registrations').update({ refund_id: null, refund_error: 'SINPE Móvil refund: run supabase-sinpe-refunds.sql', updated_at: new Date().toISOString() }).eq('id', regId);
+        return { error: 'We couldn’t start your refund — try again, or contact us' };
+      }
+      await supabase.from('event_registrations').update({
+        status: 'refund_manual', refund_id: null, refund_error: null, payment_method: 'mobile_number', updated_at: new Date().toISOString(),
+      }).eq('id', regId);
+      return { manual: true, amountColones: amount };
+    };
+    if (isSinpe(claimed)) return byHand();
     if (!claimed.payment_intent_id) {
       await supabase.from('event_registrations').update({ refund_id: null, refund_error: 'No ONVO payment to refund' }).eq('id', regId);
       return { error: 'No ONVO payment to refund' };
     }
     try {
-      const refund = await onvo.createRefund({ paymentIntentId: claimed.payment_intent_id, amountColones: remainingColones(claimed) });
+      const refund = await onvo.createRefund({ paymentIntentId: claimed.payment_intent_id, amountColones: amount });
       await supabase.from('event_registrations').update({ refund_id: refund.id, updated_at: new Date().toISOString() }).eq('id', regId);
       return { refundId: refund.id };
     } catch (e) {
+      if (onvo.isNotRefundableByApi(e)) return byHand(); // a SINPE Móvil payment we didn't know about
       console.error(`Refund for registration ${regId} failed:`, e.message);
       await supabase.from('event_registrations').update({ refund_id: null, refund_error: e.message.slice(0, 300), updated_at: new Date().toISOString() }).eq('id', regId);
       return { error: e.message };
     }
+  }
+
+  // Remembers how a payment was made (card or SINPE Móvil), so a later
+  // refund knows whether ONVO can do it.
+  async function rememberPaymentMethod(regId, paymentIntentId) {
+    if (!paymentIntentId) return;
+    try {
+      const type = await onvo.paymentMethodType(paymentIntentId);
+      if (type) await supabase.from('event_registrations').update({ payment_method: type }).eq('id', regId);
+    } catch (e) { /* not important: a refund finds out from ONVO's answer */ }
   }
 
   // ONVO says this registration's payment succeeded.
@@ -81,7 +132,10 @@ function makePayments(deps) {
     if (error) throw error;
     if (outcome === 'needs_refund') {
       console.warn(`Registration ${reg.id} was paid but the event is full or cancelled — refunding.`);
+      await rememberPaymentMethod(reg.id, paymentIntentId || reg.payment_intent_id);
       await refundRegistration(reg.id);
+    } else if (outcome === 'confirmed') {
+      rememberPaymentMethod(reg.id, paymentIntentId || reg.payment_intent_id);
     }
     return outcome;
   }
@@ -165,22 +219,40 @@ function makePayments(deps) {
   }
 
   // Refund one guest of a group payment (before the cutoff): their spot is
-  // freed and their share goes back. index: position in guest_names.
-  async function refundGuest(reg, index) {
+  // freed and their share goes back: by ONVO for a card, by hand (SINPE
+  // Móvil) otherwise. index: position in guest_names.
+  async function refundGuest(reg, index, { phone = null } = {}) {
     const name = (reg.guest_names || [])[index];
     if (name == null) return { status: 404, error: 'Guest not found' };
     const done = Array.isArray(reg.guest_refunds) ? reg.guest_refunds : [];
     if (done.some(g => g.index === index && g.status !== 'failed')) return { status: 409, error: 'That guest was already refunded' };
     if ((reg.spots || 1) < 2) return { status: 409, error: 'That guest was already refunded' };
-    if (!reg.payment_intent_id) return { status: 409, error: 'No ONVO payment to refund' };
+    if (!reg.payment_intent_id && !isSinpe(reg)) return { status: 409, error: 'No ONVO payment to refund' };
     const amount = guestShareColones(reg);
-    const entry = { index, name, amountColones: amount, refundId: 'requesting', status: 'pending', at: new Date().toISOString() };
+    const sinpe = isSinpe(reg);
+    const entry = { index, name, amountColones: amount, refundId: sinpe ? null : 'requesting', status: sinpe ? 'manual' : 'pending', at: new Date().toISOString() };
     // Claim: only if nothing changed since we read it.
     const { data: claimed, error } = await supabase.from('event_registrations')
       .update({ spots: reg.spots - 1, guest_refunds: [...done.filter(g => g.index !== index), entry], updated_at: new Date().toISOString() })
       .eq('id', reg.id).eq('spots', reg.spots).eq('status', 'confirmed').select('*').maybeSingle();
     if (error) throw error;
     if (!claimed) return { status: 409, error: 'Something changed — try again' };
+    const undo = () => supabase.from('event_registrations')
+      .update({ spots: reg.spots, guest_refunds: done, updated_at: new Date().toISOString() }).eq('id', reg.id);
+    const byHand = async () => {
+      try {
+        await addManualRefund(reg, { kind: 'guest', amountColones: amount, guestIndex: index, guestName: name, phone });
+      } catch (e) {
+        console.error(`Could not record the SINPE Móvil guest refund for registration ${reg.id}:`, e.message);
+        await undo();
+        return { status: 502, error: 'We couldn’t start your refund — try again, or contact us' };
+      }
+      const { data: now } = await supabase.from('event_registrations').select('guest_refunds').eq('id', reg.id).maybeSingle();
+      const list = ((now && now.guest_refunds) || []).map(g => (g.index === index ? { ...g, refundId: null, status: 'manual' } : g));
+      await supabase.from('event_registrations').update({ guest_refunds: list, payment_method: 'mobile_number' }).eq('id', reg.id);
+      return { status: 200, amountColones: amount, manual: true };
+    };
+    if (sinpe) return byHand();
     try {
       const refund = await onvo.createRefund({ paymentIntentId: reg.payment_intent_id, amountColones: amount });
       const { data: now } = await supabase.from('event_registrations').select('guest_refunds').eq('id', reg.id).maybeSingle();
@@ -188,9 +260,9 @@ function makePayments(deps) {
       await supabase.from('event_registrations').update({ guest_refunds: list }).eq('id', reg.id);
       return { status: 200, amountColones: amount };
     } catch (e) {
+      if (onvo.isNotRefundableByApi(e)) return byHand();
       console.error(`Guest refund for registration ${reg.id} failed:`, e.message);
-      await supabase.from('event_registrations')
-        .update({ spots: reg.spots, guest_refunds: done, updated_at: new Date().toISOString() }).eq('id', reg.id);
+      await undo();
       return { status: 502, error: 'We couldn’t start your refund — try again, or contact us' };
     }
   }
@@ -381,8 +453,12 @@ function makePayments(deps) {
         return res.json({ ok: true, released: true });
       }
       if (!beforeCutoff(ev)) return res.status(409).json({ error: 'It’s past the cancellation cutoff for this event, so it can’t be refunded' });
-      const result = await refundRegistration(reg.id);
+      const phone = cleanPhone(req.body.sinpePhone);
+      const result = await refundRegistration(reg.id, { phone });
       if (result.error) return res.status(502).json({ error: 'We couldn’t start your refund — try again, or contact us' });
+      // SINPE Móvil: the organizer sends it by hand; the app asks for the
+      // number if it wasn't given.
+      if (result.manual) return res.json({ ok: true, manual: true, amountColones: result.amountColones, needsPhone: !phone });
       res.json({ ok: true, refunding: true });
     }));
 
@@ -396,9 +472,49 @@ function makePayments(deps) {
         .order('id', { ascending: false }).limit(1).maybeSingle();
       if (!reg) return res.status(404).json({ error: 'You don’t have a spot in this event' });
       if (!beforeCutoff(ev)) return res.status(409).json({ error: 'It’s past the cancellation cutoff for this event, so it can’t be refunded' });
-      const out = await refundGuest(reg, Math.round(Number(req.body.index)));
+      const phone = cleanPhone(req.body.sinpePhone);
+      const out = await refundGuest(reg, Math.round(Number(req.body.index)), { phone });
       if (out.error) return res.status(out.status).json({ error: out.error });
-      res.json({ ok: true, amountColones: out.amountColones });
+      res.json({ ok: true, amountColones: out.amountColones, manual: !!out.manual, needsPhone: !!out.manual && !phone });
+    }));
+
+    // The player confirms (or changes) the SINPE Móvil number for their
+    // refunds still to send for this event.
+    app.post('/api/events/:id/refund-phone', ah(async (req, res) => {
+      if (!req.authUser) return res.status(403).json({ error: 'Log in to manage your spot', code: 'account_required' });
+      const phone = cleanPhone(req.body.phone);
+      if (!phone) return res.status(400).json({ error: 'Enter an 8-digit SINPE Móvil number' });
+      const { error } = await supabase.from('manual_refunds').update({ phone })
+        .eq('event_id', Number(req.params.id)).eq('user_id', req.authUser.id).eq('status', 'to_send');
+      if (error) return res.status(500).json({ error: 'Could not save the number' });
+      res.json({ ok: true, phone });
+    }));
+
+    // --- Owner: refunds to send by hand (SINPE Móvil) -----------------------------
+    app.get('/api/admin/manual-refunds', ah(async (req, res) => {
+      if (!requireAdmin(req, res)) return;
+      const { data, error } = await supabase.from('manual_refunds').select('*').order('created_at', { ascending: true });
+      if (error) return res.status(503).json({ error: 'Run supabase-sinpe-refunds.sql first' });
+      const eventIds = [...new Set((data || []).map(r => r.event_id))];
+      const { data: evs } = eventIds.length ? await supabase.from('events').select('id, title').in('id', eventIds) : { data: [] };
+      const titles = new Map((evs || []).map(e => [e.id, e.title]));
+      const shape = r => ({
+        id: r.id, eventId: r.event_id, eventTitle: titles.get(r.event_id) || '', name: r.user_name, kind: r.kind,
+        guestName: r.guest_name, amountColones: r.amount_colones, phone: r.phone, status: r.status, createdAt: r.created_at, sentAt: r.sent_at,
+      });
+      const toSend = (data || []).filter(r => r.status === 'to_send');
+      res.json({
+        toSend: toSend.map(shape),
+        totalToSendColones: toSend.reduce((n, r) => n + r.amount_colones, 0),
+        recentlySent: (data || []).filter(r => r.status === 'sent').sort((a, b) => new Date(b.sent_at) - new Date(a.sent_at)).slice(0, 20).map(shape),
+      });
+    }));
+
+    app.post('/api/admin/manual-refunds/:id/sent', ah(async (req, res) => {
+      if (!requireAdmin(req, res)) return;
+      const out = await markManualRefundSent(Number(req.params.id));
+      if (out.error) return res.status(out.status).json({ error: out.error });
+      res.json({ ok: true });
     }));
 
     // The owner's list of paid attendees (and anyone mid-refund) for an event.
@@ -406,7 +522,7 @@ function makePayments(deps) {
       if (!deps.isEventAdmin(req)) return res.status(req.authUser ? 403 : 401).json({ error: 'Only the Foursome owner can do that' });
       const { data, error } = await supabase.from('event_registrations')
         .select('*')
-        .eq('event_id', req.params.id).in('status', ['confirmed', 'refund_pending', 'refunded'])
+        .eq('event_id', req.params.id).in('status', ['confirmed', 'refund_pending', 'refund_manual', 'refunded'])
         .order('paid_at', { ascending: true });
       if (error) return res.status(500).json({ error: 'Could not load attendees' });
       res.json({
@@ -415,6 +531,7 @@ function makePayments(deps) {
           paidAt: r.paid_at, refundError: r.refund_error, refundedAt: r.refunded_at,
           spots: r.spots || 1, guestNames: r.guest_names || [], discountColones: r.discount_colones || 0,
           guestRefunds: (r.guest_refunds || []).map(g => ({ name: g.name, amountColones: g.amountColones, status: g.status })),
+          paymentMethod: r.payment_method || null,
         })),
       });
     }));
@@ -441,16 +558,51 @@ function makePayments(deps) {
     const { data: regs, error: regError } = await supabase.from('event_registrations')
       .select('*').eq('event_id', eventId).in('status', ['held', 'confirmed', 'refund_pending']);
     if (regError) throw regError;
-    let refunding = 0; let failed = 0;
+    let refunding = 0; let failed = 0; let manualCount = 0; let manualTotalColones = 0;
     for (const reg of regs || []) {
       if (reg.status === 'held') { await releaseHold(reg); continue; }
       const result = await refundRegistration(reg.id);
-      if (result.error) failed++; else if (!result.skipped) refunding++;
+      if (result.error) failed++;
+      else if (result.manual) { manualCount++; manualTotalColones += result.amountColones; }
+      else if (!result.skipped) refunding++;
       if (deps.notifyUser) {
-        deps.notifyUser(reg.user_id, lang => push(lang, 'eventCancelled')).catch(() => {});
+        deps.notifyUser(reg.user_id, result.manual
+          ? (lang => lang === 'en'
+            ? ['Event cancelled', 'An event you paid for was cancelled. The organizer will send your full refund by SINPE Móvil within 3 business days. Open the event to confirm your number.']
+            : ['Evento cancelado', 'Se canceló un evento que pagaste. El organizador te enviará el reembolso completo por SINPE Móvil en un plazo de 3 días hábiles. Abrí el evento para confirmar tu número.'])
+          : (lang => push(lang, 'eventCancelled')),
+        null, { data: { url: `${PUBLIC_BASE_URL}/e/${eventId}` } }).catch(() => {});
       }
     }
-    return { refunding, failed };
+    // Everything owed by SINPE Móvil for this event, including guest refunds
+    // from before the cancellation.
+    const { data: owed } = await supabase.from('manual_refunds').select('amount_colones, user_id').eq('event_id', eventId).eq('status', 'to_send');
+    const owedTotal = (owed || []).reduce((n, r) => n + r.amount_colones, 0);
+    return { refunding, failed, manualCount: new Set((owed || []).map(r => r.user_id)).size || manualCount, manualTotalColones: Math.max(owedTotal, manualTotalColones) };
+  }
+
+  // The owner sent a SINPE Móvil refund: done, and the player is told.
+  async function markManualRefundSent(id) {
+    const { data: row, error } = await supabase.from('manual_refunds').update({ status: 'sent', sent_at: new Date().toISOString() })
+      .eq('id', id).eq('status', 'to_send').select('*').maybeSingle();
+    if (error) return { status: 503, error: 'Run supabase-sinpe-refunds.sql first' };
+    if (!row) return { status: 409, error: 'That refund was already marked as sent' };
+    const reg = await loadRegistration({ id: row.registration_id });
+    if (reg && row.kind === 'payment') {
+      await supabase.from('event_registrations').update({ status: 'refunded', refunded_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq('id', reg.id).eq('status', 'refund_manual');
+    } else if (reg && row.kind === 'guest') {
+      const list = (reg.guest_refunds || []).map(g => (g.index === row.guest_index && g.status === 'manual' ? { ...g, status: 'refunded' } : g));
+      await supabase.from('event_registrations').update({ guest_refunds: list, updated_at: new Date().toISOString() }).eq('id', reg.id);
+    }
+    const amount = '₡' + String(row.amount_colones).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    if (deps.notifyUser) {
+      deps.notifyUser(row.user_id, lang => lang === 'en'
+        ? ['Refund sent', `${amount} was sent to you by SINPE Móvil${row.phone ? ` (${row.phone})` : ''}.`]
+        : ['Reembolso enviado', `Te enviamos ${amount} por SINPE Móvil${row.phone ? ` (${row.phone})` : ''}.`],
+      null, { data: { url: `${PUBLIC_BASE_URL}/e/${row.event_id}` } }).catch(() => {});
+    }
+    return { ok: true };
   }
 
   // Can this player still cancel their own paid spot for a refund?
@@ -471,10 +623,12 @@ function makePayments(deps) {
       else if (new Date(reg.events.starts_at) > new Date() && reg.events.status === 'open') await refundRegistration(reg.id);
     }
     await supabase.from('event_registrations').update({ user_name: 'Deleted user' }).eq('user_id', userId);
+    // SINPE Móvil refunds still to send keep the number, so the money still reaches them.
+    await supabase.from('manual_refunds').update({ user_name: 'Deleted user' }).eq('user_id', userId).then(() => {}, () => {});
     await supabase.from('event_requests').delete().eq('user_id', userId);
   }
 
-  return { registerWebhook, registerRoutes, sweepExpiredHolds, refundRegistration, refundGuest, cancelEventWithRefunds, handleAccountDeletion, HOLD_MINUTES, _handleEvent: handleEvent };
+  return { registerWebhook, registerRoutes, sweepExpiredHolds, refundRegistration, refundGuest, cancelEventWithRefunds, handleAccountDeletion, markManualRefundSent, HOLD_MINUTES, _handleEvent: handleEvent };
 }
 
-module.exports = { makePayments, HOLD_MINUTES, remainingColones, guestShareColones };
+module.exports = { makePayments, HOLD_MINUTES, remainingColones, guestShareColones, cleanPhone };

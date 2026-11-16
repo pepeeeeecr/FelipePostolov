@@ -178,16 +178,28 @@ function registerEventRoutes(app, deps) {
     const viewerId = verifiedUserId(req);
     const offers = deps.extras ? (await deps.extras.activeOffers([row.id])).get(row.id) || [] : [];
     const json = eventJson(row, regs, { haversineMiles, ...here, lang: req.lang, offers, viewerId });
-    const mine = viewerId ? regs.find(r => r.user_id === viewerId && ['held', 'confirmed', 'refund_pending'].includes(r.status)) : null;
+    const mine = viewerId ? regs.filter(r => r.user_id === viewerId && ['held', 'confirmed', 'refund_pending', 'refund_manual'].includes(r.status))
+      .sort((a, b) => (['held', 'confirmed'].includes(b.status) - ['held', 'confirmed'].includes(a.status)) || b.id - a.id)[0] || null : null;
     json.myStatus = mine ? (mine.status === 'held' && !ACTIVE_HOLD(mine) ? null : mine.status) : null;
     // My payment: spots, guests (and which were refunded), what I paid.
     if (mine && json.myStatus) {
-      const refunded = new Set((mine.guest_refunds || []).filter(g => g.status !== 'failed').map(g => g.index));
+      const refundOf = new Map((mine.guest_refunds || []).filter(g => g.status !== 'failed').map(g => [g.index, g.status]));
       json.myBooking = {
         spots: SPOTS(mine), amountColones: mine.amount_colones, discountColones: mine.discount_colones || 0,
-        guests: (mine.guest_names || []).map((name, index) => ({ index, name, refunded: refunded.has(index) })),
+        paymentMethod: mine.payment_method || null, // 'card', 'mobile_number' (SINPE Móvil) or null if unknown
+        // refund: null, 'manual' (to send by SINPE Móvil) or 'pending'/'refunded' (card)
+        guests: (mine.guest_names || []).map((name, index) => ({ index, name, refunded: refundOf.has(index), refund: refundOf.get(index) || null })),
         guestShareColones: Math.floor(Number(mine.amount_colones) / ((mine.guest_names || []).length + 1)),
       };
+    }
+    // SINPE Móvil refunds for me in this event: to send by the organizer, or sent.
+    if (viewerId) {
+      const { data: manual, error: mErr } = await supabase.from('manual_refunds').select('*').eq('event_id', row.id).eq('user_id', viewerId);
+      if (!mErr) {
+        json.myManualRefunds = (manual || []).sort((a, b) => a.id - b.id).map(m => ({
+          id: m.id, kind: m.kind, guestName: m.guest_name, amountColones: m.amount_colones, phone: m.phone, status: m.status, sentAt: m.sent_at,
+        }));
+      }
     }
     // Waitlist: whether I'm on it (and my place), or a spot is kept for me.
     if (deps.extras && req.authUser) json.myWaitlist = await deps.extras.myWaitlist(row.id, viewerId);

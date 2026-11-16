@@ -146,7 +146,7 @@ function makeEventExtras(deps) {
     if (!codeIds.length) return out;
     const { data } = await supabase.from('event_registrations').select('discount_code_id, status, hold_expires_at').in('discount_code_id', codeIds);
     for (const r of data || []) {
-      if (['confirmed', 'refund_pending', 'refunded'].includes(r.status) || activeHold(r)) out.set(r.discount_code_id, (out.get(r.discount_code_id) || 0) + 1);
+      if (['confirmed', 'refund_pending', 'refund_manual', 'refunded'].includes(r.status) || activeHold(r)) out.set(r.discount_code_id, (out.get(r.discount_code_id) || 0) + 1);
     }
     return out;
   }
