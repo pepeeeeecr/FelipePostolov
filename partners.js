@@ -5,6 +5,7 @@
 //   course's upcoming open rounds and events, links to each, "Open in
 //   Foursome" (the course page in the app) and "Get the app".
 // - /c/<slug>/poster: a printable poster with a big QR code to that page.
+// Players' names are never shown (the page is public).
 // /c/ isn't a Universal Link on purpose: scanning the poster should always
 // show the page, app or not.
 
@@ -109,7 +110,7 @@ a.card{display:block;background:#fff;border:1px solid rgba(28,42,31,.12);border-
       if (!p) return res.status(404).send(shell(lang, 'Foursome', `<div class="wrap"><div class="brand">FOURSOME</div><p class="muted" style="text-align:center">${lang === 'en' ? 'This page isn’t available.' : 'Esta página no está disponible.'}</p></div>`));
       const where = places.fields(p.lat, p.lng, lang).placeFull;
       const { rounds, events } = await upcomingAt(p, lang);
-      const roundCards = rounds.map(rd => `<a class="card" href="${esc(PUBLIC_URL)}/r/${encodeURIComponent(rd.id)}"><b>${esc(rd.date)} · ${esc(rd.time)}</b><span class="muted">${esc(t.spots(rd.open_spots))} · ${esc(t.host)} ${esc(rd.host_name)}</span></a>`).join('');
+      const roundCards = rounds.map(rd => `<a class="card" href="${esc(PUBLIC_URL)}/r/${encodeURIComponent(rd.id)}"><b>${esc(rd.date)} · ${esc(rd.time)}</b><span class="muted">${esc(t.spots(rd.open_spots))}</span></a>`).join('');
       const eventCards = events.map(ev => `<a class="card" href="${esc(PUBLIC_URL)}/e/${ev.id}"><b>${esc(ev.title)}</b><span class="muted">${esc(ev.when)} · ${esc(colones(ev.price_colones))}</span></a>`).join('');
       const body = `<div class="wrap"><div class="brand">FOURSOME</div>
 <p class="muted">${esc(t.partner)}</p><h1>${esc(p.name)}</h1>${where ? `<p class="muted">${esc(where)}</p>` : ''}
