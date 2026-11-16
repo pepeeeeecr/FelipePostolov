@@ -604,12 +604,12 @@ async function fetchRetrying(url, options, { retryOnThrow }){
   throw lastErr;
 }
 
-async function handleResponse(res, path){
+async function handleResponse(res, path, opts){
   if(!res.ok){
     let message = 'Request failed: ' + path;
     let body = null;
     try{ body = await res.json(); if(body && body.error) message = body.error; }catch(e){ /* body wasn't JSON — a tunnel/gateway error page */ }
-    if(res.status === 401){
+    if(res.status === 401 && !(opts && opts.quiet401)){
       message = SESSION_EXPIRED_MESSAGE;
       handleUnauthorized();
     }
@@ -626,13 +626,13 @@ async function apiGet(path){
   const res = await fetchRetrying(path, { headers: await authHeaders() }, { retryOnThrow: true });
   return handleResponse(res, path);
 }
-async function apiPost(path, body){
+async function apiPost(path, body, opts){
   const res = await fetchRetrying(path, {
     method: 'POST',
     headers: Object.assign({ 'Content-Type': 'application/json' }, await authHeaders()),
     body: JSON.stringify(body)
   }, { retryOnThrow: false });
-  return handleResponse(res, path);
+  return handleResponse(res, path, opts);
 }
 async function apiDelete(path, body){
   const res = await fetchRetrying(path, {
@@ -1015,10 +1015,13 @@ async function saveProfile(name, homeCourse, handicap, bio, availability){
     // fields on an update. See recordConsentIfNeeded() at the welcome gate.
     let consent = null;
     try{ consent = JSON.parse(localStorage.getItem('foursome_consent') || 'null'); }catch(e){ /* ignore */ }
+    // A guest's very first save has no token yet, so a "sign in required"
+    // answer here never means an expired session (see the catch below).
+    const firstGuestSave = !state.session && GUEST_ID_PATTERN.test(state.myUserId) && !loadGuestTokens()[state.myUserId];
     const profile = await apiPost('/api/profiles', {
       userId: state.myUserId, name, homeCourse, handicap, bio: bio || '', availability: availability || [],
       termsAgreedAt: consent ? consent.agreedAt : null, policyVersion: consent ? consent.policyVersion : null
-    });
+    }, { quiet401: firstGuestSave });
     if(profile.guestToken){
       saveGuestToken(state.myUserId, profile.guestToken);
       delete profile.guestToken;
@@ -1034,7 +1037,15 @@ async function saveProfile(name, homeCourse, handicap, bio, availability){
     showToast('Profile saved');
     render();
   }catch(e){
-    showToast(e.status === 401 ? 'Log in or create an account to edit this profile' : (e.message || 'Could not save — try again'));
+    if(e.status === 401 && !state.session && GUEST_ID_PATTERN.test(state.myUserId) && !loadGuestTokens()[state.myUserId]){
+      // That guest id was already used and its token never reached us:
+      // start a fresh guest so the next tap on Save works.
+      state.myUserId = uid();
+      localStorage.setItem('foursome_activeUserId', state.myUserId);
+      showToast('Could not save — tap Save again');
+    } else {
+      showToast(e.status === 401 ? 'Log in or create an account to edit this profile' : (e.message || 'Could not save — try again'));
+    }
     console.error('saveProfile failed:', { message: e.message, status: e.status, path: e.path, body: e.body });
   }
 }
@@ -1983,7 +1994,12 @@ function attachOnboardingHandlers(){
       showToast('Fill in all three fields');
       return;
     }
-    await saveProfile(name, course, hcp, bio);
+    // One save at a time (a double tap would send it twice).
+    const btn = document.getElementById('ob-save');
+    if(btn.disabled) return;
+    btn.disabled = true; btn.textContent = 'Saving…';
+    try{ await saveProfile(name, course, hcp, bio); }
+    finally{ const b = document.getElementById('ob-save'); if(b){ b.disabled = false; b.textContent = 'Save profile'; } }
   });
 }
 

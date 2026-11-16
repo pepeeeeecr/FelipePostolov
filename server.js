@@ -759,6 +759,15 @@ app.delete('/api/account', ah(async (req, res) => {
 }));
 
 // --- Profiles ------------------------------------------------------------
+// POST /api/profiles: is this the same first save again? (see below)
+const FIRST_SAVE_REPEAT_MS = 2 * 60 * 1000;
+function isRepeatOfFirstSave(row, body) {
+  const createdAt = Number(row.created_at || row.updated_at || 0);
+  if (!createdAt || Date.now() - createdAt > FIRST_SAVE_REPEAT_MS) return false;
+  return row.name === body.name && row.home_course === body.homeCourse &&
+    Number(row.handicap) === parseFloat(body.handicap) && (row.bio || '') === (body.bio || '');
+}
+
 app.post('/api/profiles', ah(async (req, res) => {
   const { name, homeCourse, handicap, bio, availability, termsAgreedAt, policyVersion } = req.body;
   const userId = resolveUserId(req, req.body.userId);
@@ -775,6 +784,14 @@ app.post('/api/profiles', ah(async (req, res) => {
   // guest profile (which is what issues the guest token), or editing a
   // guest profile with that guest's own token. A bare id is never enough.
   if (!req.authUser) {
+    // A repeat of the very first save (a gateway retry, a double tap, or an
+    // answer lost on the way back): same new guest, same details, within 2
+    // minutes of creating it. Hand back the same token instead of "Sign in
+    // required", which the website and app treat as an expired session.
+    // Nobody else can know a brand-new guest's id and exact details yet.
+    if (existing && req.guestId !== userId && GUEST_ID_PATTERN.test(userId) && isRepeatOfFirstSave(existing, req.body)) {
+      return res.json({ ...(await toProfileJson(existing)), guestToken: issueGuestToken(userId) });
+    }
     const allowed = existing ? req.guestId === userId : GUEST_ID_PATTERN.test(userId);
     if (!allowed) return res.status(401).json({ error: 'Sign in required' });
   }
@@ -792,7 +809,15 @@ app.post('/api/profiles', ah(async (req, res) => {
       user_id: userId, name, home_course: homeCourse, handicap: parseFloat(handicap), bio: bio || '', availability: cleanAvailability, updated_at: Date.now(),
       terms_agreed_at: termsAgreedAt || null, terms_policy_version: policyVersion || null
     });
-    if (error) return res.status(500).json({ error: 'Could not save profile' });
+    if (error) {
+      // Two first saves at the same moment (a double tap): the other one
+      // created it. Same guest, same details: same token.
+      const now = /duplicate|unique/i.test(error.message || '') ? await getUser(userId) : null;
+      if (now && !req.authUser && GUEST_ID_PATTERN.test(userId) && isRepeatOfFirstSave(now, req.body)) {
+        return res.json({ ...(await toProfileJson(now)), guestToken: issueGuestToken(userId) });
+      }
+      return res.status(500).json({ error: 'Could not save profile' });
+    }
     // Sign-up date for the owner dashboard; separate so profile creation
     // never depends on supabase-dashboard.sql having been run.
     supabase.from('users').update({ created_at: Date.now() }).eq('user_id', userId).then(() => {}, () => {});
