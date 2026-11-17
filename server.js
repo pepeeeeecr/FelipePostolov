@@ -649,7 +649,7 @@ function resolveUserId(req, bodyUserId) {
 
 // Paid-event payments (ONVO). Built here, near the top, because its
 // webhook route has to be registered before the JSON body parser.
-const eventPayments = makePayments({ supabase, ah, getUser, isBanned, BANNED_ERROR, isEventAdmin, notifyUser, moderateFields });
+const eventPayments = makePayments({ supabase, ah, getUser, isBanned, BANNED_ERROR, isEventAdmin, notifyUser, moderateFields, get DEMO_USER_IDS() { return DEMO_USER_IDS; } });
 
 // --- Middleware ---------------------------------------------------------
 app.use(cors()); // relax to your real domain before a public launch

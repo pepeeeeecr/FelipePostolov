@@ -158,7 +158,9 @@ function registerSharePages(app, { supabase, ah, DEMO_USER_IDS, eventJson }) {
     const lang = pickLang(req);
     const t = T[lang];
     const { data: row } = await supabase.from('events').select('*').eq('id', req.params.id).maybeSingle();
-    if (!row || row.status !== 'open' || new Date(row.starts_at) <= new Date()) {
+    // The App Review demo event has no public page (its calendar file still
+    // works, for "Add to calendar" in the app).
+    if (!row || row.status !== 'open' || new Date(row.starts_at) <= new Date() || DEMO_USER_IDS.has(row.created_by)) {
       return res.status(404).send(page(lang, { title: 'Foursome', lines: [t.gone], appLink: null }));
     }
     const { data: regs } = await supabase.from('event_registrations')

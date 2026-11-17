@@ -108,8 +108,37 @@ function eventJson(row, regs, { haversineMiles, lat, lng, lang = 'en', offers = 
   return json;
 }
 
+// A demo event less than 3 days away (or past) → the same weekday and time,
+// whole weeks later, at least 7 days from now. Otherwise null (leave it).
+function nextDemoStart(startMs, nowMs = Date.now()) {
+  const day = 24 * 3600e3, week = 7 * day;
+  if (startMs >= nowMs + 3 * day) return null;
+  const weeks = Math.ceil((nowMs + week - startMs) / week);
+  return new Date(startMs + weeks * week).toISOString();
+}
+
 function registerEventRoutes(app, deps) {
   const { supabase, ah, verifiedUserId, geocodeCourse, haversineMiles, idsBlockedBy, isBanned, BANNED_ERROR, moderateFields, getUser, sendAdminEmail, notifyNewEvent } = deps;
+
+  // App Review demo events: created by a demo account. Only demo accounts
+  // see them (and only them), like the demo rounds.
+  const DEMO = () => deps.DEMO_USER_IDS || new Set();
+  const isDemoEvent = row => !!row && DEMO().has(row.created_by);
+  const isDemoViewer = id => !!id && DEMO().has(id);
+
+  // Keeps demo events about a week out: one less than 3 days away (or past)
+  // moves forward whole weeks (same weekday and time) until it's at least 7
+  // days away.
+  async function keepDemoEventsCurrent() {
+    const ids = [...DEMO()];
+    if (!ids.length) return;
+    const { data, error } = await supabase.from('events').select('id, starts_at, status, created_by').in('created_by', ids).eq('status', 'open');
+    if (error) return;
+    for (const ev of data || []) {
+      const next = nextDemoStart(new Date(ev.starts_at).getTime());
+      if (next) await supabase.from('events').update({ starts_at: next, updated_at: new Date().toISOString() }).eq('id', ev.id);
+    }
+  }
 
   async function registrationsFor(eventIds) {
     if (eventIds.length === 0) return new Map();
@@ -141,13 +170,16 @@ function registerEventRoutes(app, deps) {
   app.get('/api/events', ah(async (req, res) => {
     const lat = parseFloat(req.query.lat);
     const lng = parseFloat(req.query.lng);
-    const { data: rows, error } = await supabase
+    const demoViewer = isDemoViewer(verifiedUserId(req));
+    if (demoViewer) await keepDemoEventsCurrent();
+    let { data: rows, error } = await supabase
       .from('events').select('*')
       .eq('status', 'open')
       .gt('starts_at', new Date().toISOString())
       .order('starts_at', { ascending: true })
       .limit(100);
     if (error) return res.status(500).json({ error: 'Could not load events' });
+    rows = (rows || []).filter(r => isDemoEvent(r) === demoViewer);
     await fillMissingCoordinates(rows || []);
     const regs = await registrationsFor((rows || []).map(r => r.id));
     const offers = deps.extras ? await deps.extras.activeOffers((rows || []).map(r => r.id)) : new Map();
@@ -158,7 +190,7 @@ function registerEventRoutes(app, deps) {
     const { data: past, error: pastErr } = await supabase.from('events').select('*').eq('status', 'open')
       .lte('starts_at', new Date().toISOString()).gte('starts_at', new Date(Date.now() - 90 * 24 * 3600e3).toISOString())
       .order('starts_at', { ascending: false }).limit(20);
-    if (!pastErr) recent = (past || []).filter(r => r.results_posted_at || (r.results_photos || []).length).slice(0, 10);
+    if (!pastErr) recent = (past || []).filter(r => isDemoEvent(r) === demoViewer && (r.results_posted_at || (r.results_photos || []).length)).slice(0, 10);
     const pastRegs = await registrationsFor(recent.map(r => r.id));
     res.json({
       events: (rows || []).map(r => eventJson(r, regs.get(r.id), { haversineMiles, ...here, lang: req.lang, offers: offers.get(r.id) || [], viewerId })),
@@ -171,6 +203,7 @@ function registerEventRoutes(app, deps) {
     const { data: row, error } = await supabase.from('events').select('*').eq('id', req.params.id).maybeSingle();
     if (error) return res.status(500).json({ error: 'Could not load event' });
     if (!row) return res.status(404).json({ error: 'Event not found' });
+    if (isDemoEvent(row) !== isDemoViewer(verifiedUserId(req))) return res.status(404).json({ error: 'Event not found' });
     const lat = parseFloat(req.query.lat);
     const lng = parseFloat(req.query.lng);
     const regs = (await registrationsFor([row.id])).get(row.id);
@@ -289,7 +322,8 @@ function registerEventRoutes(app, deps) {
     const { data: rows, error } = await supabase.from('events').select('*').order('starts_at', { ascending: false }).limit(200);
     if (error) return res.status(500).json({ error: 'Could not load events' });
     const regs = await registrationsFor((rows || []).map(r => r.id));
-    res.json({ events: (rows || []).map(r => eventJson(r, regs.get(r.id), { lang: req.lang })) });
+    // isDemo: the App Review demo event (Manage labels it).
+    res.json({ events: (rows || []).map(r => ({ ...eventJson(r, regs.get(r.id), { lang: req.lang }), isDemo: isDemoEvent(r) })) });
   }));
 
   app.post('/api/admin/events', ah(async (req, res) => {
@@ -419,7 +453,8 @@ function registerEventRoutes(app, deps) {
     const signedUpAt = u => Number(u.created_at || u.terms_agreed_at || 0);
     const { count: roundsThisWeek } = await supabase.from('teetimes').select('id', { count: 'exact', head: true }).gte('created_at', weekAgo);
 
-    const { data: events } = await supabase.from('events').select('*').eq('status', 'open').gt('starts_at', new Date().toISOString()).order('starts_at', { ascending: true });
+    let { data: events } = await supabase.from('events').select('*').eq('status', 'open').gt('starts_at', new Date().toISOString()).order('starts_at', { ascending: true });
+    events = (events || []).filter(e => !isDemoEvent(e)); // the demo event isn't real revenue
     const regs = await registrationsFor((events || []).map(e => e.id));
     const upcoming = (events || []).map(ev => {
       const list = regs.get(ev.id) || [];
@@ -449,4 +484,4 @@ function registerEventRoutes(app, deps) {
   }));
 }
 
-module.exports = { registerEventRoutes, isEventAdmin, localToInstant, whenLabel, eventJson, ACTIVE_HOLD };
+module.exports = { registerEventRoutes, isEventAdmin, localToInstant, whenLabel, eventJson, ACTIVE_HOLD, nextDemoStart };

@@ -51,6 +51,9 @@ function guestShareColones(reg) {
 
 function makePayments(deps) {
   const { supabase } = deps;
+  // App Review demo accounts always pay in ONVO test mode (onvo.js).
+  const modeOf = userId => (deps.DEMO_USER_IDS && deps.DEMO_USER_IDS.has(userId) ? 'demo' : undefined);
+  const isDemoEvent = ev => !!(ev && deps.DEMO_USER_IDS && deps.DEMO_USER_IDS.has(ev.created_by));
 
   async function loadRegistration(match) {
     const [col, val] = Object.entries(match)[0];
@@ -106,7 +109,7 @@ function makePayments(deps) {
       return { error: 'No ONVO payment to refund' };
     }
     try {
-      const refund = await onvo.createRefund({ paymentIntentId: claimed.payment_intent_id, amountColones: amount });
+      const refund = await onvo.createRefund({ paymentIntentId: claimed.payment_intent_id, amountColones: amount, mode: modeOf(claimed.user_id) });
       await supabase.from('event_registrations').update({ refund_id: refund.id, updated_at: new Date().toISOString() }).eq('id', regId);
       return { refundId: refund.id };
     } catch (e) {
@@ -119,10 +122,10 @@ function makePayments(deps) {
 
   // Remembers how a payment was made (card or SINPE Móvil), so a later
   // refund knows whether ONVO can do it.
-  async function rememberPaymentMethod(regId, paymentIntentId) {
+  async function rememberPaymentMethod(regId, paymentIntentId, userId) {
     if (!paymentIntentId) return;
     try {
-      const type = await onvo.paymentMethodType(paymentIntentId);
+      const type = await onvo.paymentMethodType(paymentIntentId, modeOf(userId));
       if (type) await supabase.from('event_registrations').update({ payment_method: type }).eq('id', regId);
     } catch (e) { /* not important: a refund finds out from ONVO's answer */ }
   }
@@ -135,10 +138,10 @@ function makePayments(deps) {
     if (error) throw error;
     if (outcome === 'needs_refund') {
       console.warn(`Registration ${reg.id} was paid but the event is full or cancelled — refunding.`);
-      await rememberPaymentMethod(reg.id, paymentIntentId || reg.payment_intent_id);
+      await rememberPaymentMethod(reg.id, paymentIntentId || reg.payment_intent_id, reg.user_id);
       await refundRegistration(reg.id);
     } else if (outcome === 'confirmed') {
-      rememberPaymentMethod(reg.id, paymentIntentId || reg.payment_intent_id);
+      rememberPaymentMethod(reg.id, paymentIntentId || reg.payment_intent_id, reg.user_id);
     }
     return outcome;
   }
@@ -257,7 +260,7 @@ function makePayments(deps) {
     };
     if (sinpe) return byHand();
     try {
-      const refund = await onvo.createRefund({ paymentIntentId: reg.payment_intent_id, amountColones: amount });
+      const refund = await onvo.createRefund({ paymentIntentId: reg.payment_intent_id, amountColones: amount, mode: modeOf(reg.user_id) });
       const { data: now } = await supabase.from('event_registrations').select('guest_refunds').eq('id', reg.id).maybeSingle();
       const list = ((now && now.guest_refunds) || claimed.guest_refunds || []).map(g => (g.index === index && g.refundId === 'requesting' ? { ...g, refundId: refund.id } : g));
       await supabase.from('event_registrations').update({ guest_refunds: list }).eq('id', reg.id);
@@ -303,11 +306,11 @@ function makePayments(deps) {
   // Releases holds that ran out and expires their Checkout pages.
   async function sweepExpiredHolds() {
     const { data: stale, error } = await supabase.from('event_registrations')
-      .select('id, checkout_session_id').eq('status', 'held').lt('hold_expires_at', new Date().toISOString()).limit(50);
+      .select('id, checkout_session_id, user_id').eq('status', 'held').lt('hold_expires_at', new Date().toISOString()).limit(50);
     if (error) { console.error('Hold sweep failed:', error.message); return; }
     for (const reg of stale || []) {
       if (reg.checkout_session_id) {
-        try { await onvo.expireCheckoutSession(reg.checkout_session_id); }
+        try { await onvo.expireCheckoutSession(reg.checkout_session_id, modeOf(reg.user_id)); }
         catch (e) { if (!(e.status >= 400 && e.status < 500)) console.warn(`Could not expire ONVO session ${reg.checkout_session_id}:`, e.message); }
       }
       await supabase.from('event_registrations')
@@ -323,7 +326,9 @@ function makePayments(deps) {
     // Signed-in accounts only (guests can't pay), so receipts and refunds
     // reach a real person.
     app.post('/api/events/:id/join', ah(async (req, res) => {
-      if (!onvo.onvoConfigured) return res.status(503).json({ error: 'Payments aren’t available right now. Try again later.' });
+      // Demo accounts: ONVO test mode only (never a live key).
+      const payMode = req.authUser ? modeOf(req.authUser.id) : undefined;
+      if (!onvo.configuredFor(payMode)) return res.status(503).json({ error: 'Payments aren’t available right now. Try again later.' });
       // 403, not 401: the app treats 401 as "your session expired".
       if (!req.authUser) return res.status(403).json({ error: 'Create an account or log in to join paid events', code: 'account_required' });
       const userId = req.authUser.id;
@@ -331,6 +336,9 @@ function makePayments(deps) {
       const appReturn = APP_RETURN_PATTERN.test(String(req.body.appReturnUrl || '')) ? req.body.appReturnUrl : 'foursomemobile://payment-return';
       const user = await getUser(userId);
       const userName = (user && user.name) || (req.authUser.email || '').split('@')[0] || 'Player';
+      // Demo accounts and real users never see (or pay for) each other's events.
+      const { data: target } = await supabase.from('events').select('id, created_by').eq('id', Number(req.params.id)).maybeSingle();
+      if (target && isDemoEvent(target) !== (payMode === 'demo')) return res.status(404).json({ error: 'Event not found' });
 
       // Paying for a group (2–4 spots, guests' names) and discount codes
       // need supabase-event-extras.sql; one spot without a code works either way.
@@ -387,6 +395,7 @@ function makePayments(deps) {
           redirectUrl: back,
           cancelUrl: back + '&cancelled=1',
           metadata: { registrationId: String(reg.id), eventId: String(ev.id) },
+          mode: payMode,
         });
       } catch (e) {
         console.error('ONVO Checkout session failed:', e.message);
@@ -545,7 +554,7 @@ function makePayments(deps) {
   // Lets go of a hold (not paid): expires the ONVO page so it can't be paid.
   async function releaseHold(reg) {
     if (reg.checkout_session_id) {
-      try { await onvo.expireCheckoutSession(reg.checkout_session_id); }
+      try { await onvo.expireCheckoutSession(reg.checkout_session_id, modeOf(reg.user_id)); }
       catch (e) { if (!(e.status >= 400 && e.status < 500)) console.warn(`Could not expire ONVO session ${reg.checkout_session_id}:`, e.message); }
     }
     await supabase.from('event_registrations')

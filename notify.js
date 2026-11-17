@@ -204,7 +204,7 @@ function makeNotifier(deps) {
 
   async function newEvent(ev) {
     try {
-      if (ev.status !== 'open' || new Date(ev.starts_at) <= new Date()) return;
+      if (ev.status !== 'open' || new Date(ev.starts_at) <= new Date() || DEMO_USER_IDS.has(ev.created_by)) return;
       await sendEvent(ev, 'new_event');
     } catch (e) {
       if (!tableMissing(e)) console.error('New event notifications failed:', e.message);
@@ -219,7 +219,7 @@ function makeNotifier(deps) {
     const { data: events, error } = await supabase.from('events').select('*').eq('status', 'open')
       .gt('starts_at', new Date(now).toISOString()).lt('starts_at', new Date(now + 31 * 24 * 3600e3).toISOString());
     if (error) throw error;
-    for (const ev of events || []) {
+    for (const ev of (events || []).filter(e => !DEMO_USER_IDS.has(e.created_by))) { // never the App Review demo event
       const { data: regs } = await supabase.from('event_registrations').select('*').eq('event_id', ev.id);
       const taken = (regs || []).filter(r => r.status === 'confirmed' || ACTIVE_HOLD(r)).reduce((n, r) => n + Math.max(1, Number(r.spots) || 1), 0);
       const spotsLeft = Math.max(0, ev.max_players - taken);
@@ -268,7 +268,7 @@ function makeNotifier(deps) {
     // Events tomorrow (in the event's time zone), for everyone confirmed.
     const { data: events } = await supabase.from('events').select('*').eq('status', 'open')
       .gt('starts_at', new Date().toISOString()).lt('starts_at', new Date(Date.now() + 2 * 24 * 3600e3).toISOString());
-    for (const ev of events || []) {
+    for (const ev of (events || []).filter(e => !DEMO_USER_IDS.has(e.created_by))) {
       const here = localParts(ev.time_zone);
       const evDay = localParts(ev.time_zone, null, new Date(ev.starts_at)).date;
       if (!isEvening(here.hour) || evDay !== nextDay(here.date)) continue;

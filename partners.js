@@ -68,7 +68,7 @@ function makePartners(deps) {
       .filter(rd => !DEMO_USER_IDS.has(rd.host_id) && !banned.has(rd.host_id) && (!rd.group_id || rd.open_to_all))
       .filter(rd => atCourse(p, rd.course, rd.lat, rd.lng))
       .sort((a, b) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`)).slice(0, 20);
-    const e = (events || []).filter(ev => atCourse(p, ev.course, ev.lat, ev.lng))
+    const e = (events || []).filter(ev => !DEMO_USER_IDS.has(ev.created_by) && atCourse(p, ev.course, ev.lat, ev.lng))
       .sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at)).slice(0, 10)
       .map(ev => ({ ...ev, when: whenLabel(new Date(ev.starts_at), ev.time_zone, lang) }));
     return { rounds: r, events: e };

@@ -44,9 +44,9 @@ function registerActivity(app, { supabase, ah, verifiedUserId, haversineMiles, p
     }
 
     // The next open event within 100 km.
-    const { data: events } = await supabase.from('events').select('id, title, course, lat, lng, starts_at, time_zone')
+    const { data: events } = await supabase.from('events').select('id, title, course, lat, lng, starts_at, time_zone, created_by')
       .eq('status', 'open').gt('starts_at', new Date().toISOString()).order('starts_at', { ascending: true }).limit(50);
-    const next = (events || []).find(ev => {
+    const next = (events || []).filter(ev => !DEMO_USER_IDS.has(ev.created_by)).find(ev => { // never the demo event
       const at = ev.lat != null && ev.lng != null ? { lat: ev.lat, lng: ev.lng } : peekHome(ev.course);
       return at && km(origin, at) <= RADIUS_KM;
     });
