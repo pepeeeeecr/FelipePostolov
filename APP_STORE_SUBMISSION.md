@@ -177,6 +177,15 @@ HOW TO TEST
    Store Review Guideline 3.1.3(e) it uses an outside payment provider
    (ONVO Pay, Costa Rica, cards and SINPE Móvil) on ONVO's hosted page,
    not In-App Purchase. No digital content or app features are sold.
+   To try it: signed in as "Foursome Demo", open the Events tab and tap
+   "Foursome Demo Tournament" (a demo event about a week away that only
+   the demo accounts see). Tap "Pay ₡5,000 to join". The demo accounts
+   always pay in ONVO's test mode, so nothing is charged: on ONVO's page
+   use the test card 4242 4242 4242 4242 with any future expiry date,
+   any CVV and any name (or, for SINPE Móvil, the test number
+   8888 8888). Close the page; within a few seconds the event shows
+   "You're in". To see a refund, tap "Can't make it? Cancel for a full
+   refund" on the same event.
    Refunds: full refund if the player cancels before the event's
    cutoff, or if we cancel the event. Card payments are refunded
    automatically through ONVO; SINPE Móvil payments can't be refunded
