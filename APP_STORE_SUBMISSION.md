@@ -56,7 +56,7 @@ reserve anything with the course — you're responsible for actually
 having a tee time to share. The "Courses" tab lets you search for golf
 courses or see what's nearby; it doesn't book anything.
 
-Sign up with email, or jump in as a guest with no account at all.
+Sign in with Apple, Google or email, or jump in as a guest with no account at all.
 ```
 
 **Keywords** (97 / 100 characters)
@@ -81,16 +81,17 @@ There are no analytics, ad, or tracking SDKs anywhere in the codebase.
 | Data type | Collected? | Used for | Linked to identity? | Used for tracking? |
 |---|---|---|---|---|
 | **Contact Info — Name** | Yes | App Functionality | Yes | No |
-| **Contact Info — Email Address** | Yes (only for full accounts; guest mode needs no email) | App Functionality | Yes | No |
+| **Contact Info — Email Address** | Yes (only for full accounts — email, Apple or Google sign-in; with Apple's Hide My Email it's a private relay address; guest mode needs no email) | App Functionality | Yes | No |
+| **Contact Info — Phone Number** | Yes, only if a player paid by SINPE Móvil and cancels: the number the organizer sends the refund to | App Functionality | Yes | No |
 | **Location — Precise Location** | Yes, once the user grants permission (checked when the app is opened or brought to the foreground, only while in use) | App Functionality | No — sent with nearby-course searches, never stored | No |
-| **User Content — Other User Content** (bio, round details/notes, chat messages, ratings & comments, reports you file) | Yes | App Functionality | Yes | No |
+| **User Content — Other User Content** (bio, round details/notes, round and group chat messages, groups, friends, guests' names on group payments, ratings & comments, reports you file) | Yes | App Functionality | Yes | No |
+| **User Content — Photos or Videos** (optional profile photo; event photos the organizer posts) | Yes | App Functionality | Yes | No |
 | **Identifiers — User ID** | Yes | App Functionality | Yes | No |
 | **Purchases — Purchase History** (paid event spots: amount, date, refund status) | Yes, only if the user pays for an event | App Functionality | Yes | No |
 | **Identifiers — Device ID** (push notification token, only if notifications are enabled) | Yes, opt-in only | App Functionality | Yes | No |
 | Health & Fitness | No | — | — | — |
 | Financial Info | No | — | — | — |
 | Contacts | No | — | — | — |
-| Photos or Videos | No | — | — | — |
 | Audio Data | No | — | — | — |
 | Browsing/Search History | No | — | — | — |
 | Usage Data (analytics) | No | — | — | — |
@@ -152,10 +153,19 @@ HOW TO TEST
    to a real user.
 6. Other reviewable features from this same account: Profile tab (edit
    profile, see past rounds), Settings (Privacy Policy, Terms of Service,
-   Help & FAQ, Contact Us, Blocked users, Delete Account — all reachable without needing to
-   actually delete the test account).
-7. Sign-in is email/password or guest mode. There is no Google, Facebook
-   or other third-party sign-in.
+   Help — a short FAQ with a Contact us button —, Blocked users, Delete
+   Account — all reachable without needing to actually delete the test
+   account).
+7. Sign-in options: Sign in with Apple, Sign in with Google, email and
+   password, or guest mode (no account). Sign in with Apple is offered
+   alongside Google, as Guideline 4.8 requires, and is shown first. You
+   can use the demo account above (email and password) or your own Apple
+   ID or Google account; a new account goes through a short setup (name,
+   home course and handicap, then notifications). A new email account
+   is confirmed with a 6-digit code sent by email, and "Forgot
+   password?" on the login screen resets a password the same way.
+   Deleting an account that signed in with Apple asks Apple to confirm
+   once more and revokes the app's Sign in with Apple access.
 8. Location permission: tapping "Use my location" on the Discover or
    Courses tabs triggers the standard iOS "While Using the App"
    prompt. Once allowed, the app checks location each time it's opened
@@ -168,13 +178,16 @@ HOW TO TEST
    (ONVO Pay, Costa Rica, cards and SINPE Móvil) on ONVO's hosted page,
    not In-App Purchase. No digital content or app features are sold.
    Refunds: full refund if the player cancels before the event's
-   cutoff, or automatically if we cancel the event.
+   cutoff, or if we cancel the event. Card payments are refunded
+   automatically through ONVO; SINPE Móvil payments can't be refunded
+   through ONVO, so the organizer sends them by hand to the number the
+   player confirms in the app, within 3 business days.
 
-The backend is a public web app in its own right at
-https://felipepostolov.onrender.com, which the app talks to for
-everything above. Privacy Policy, Terms of Service, and Support
-(contact: foursomeapp.golf@gmail.com) are also reachable directly at
-https://felipepostolov.onrender.com/privacy,
-https://felipepostolov.onrender.com/terms, and
-https://felipepostolov.onrender.com/support.
+Foursome is an app only; https://foursomecr.com is its landing page
+and the server the app talks to for everything above. Privacy Policy,
+Terms of Service, Refund Policy, Support (contact:
+foursomeapp.golf@gmail.com) and how to delete an account are at
+https://foursomecr.com/privacy, https://foursomecr.com/terms,
+https://foursomecr.com/refund, https://foursomecr.com/support and
+https://foursomecr.com/delete-account.
 ```
