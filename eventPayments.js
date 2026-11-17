@@ -24,6 +24,9 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// Apple's "Hide My Email" addresses (Sign in with Apple).
+const isAppleRelay = email => /@privaterelay\.appleid\.com$/i.test(String(email || '').trim());
+
 // A Costa Rica SINPE Móvil number: 8 digits (a +506 in front is dropped).
 // Returns '8888-8888', or null if it isn't one.
 function cleanPhone(raw) {
@@ -377,7 +380,9 @@ function makePayments(deps) {
         session = await onvo.createCheckoutSession({
           amountColones: reg.amount_colones,
           description: `${ev.title}${spotsText} — ${ev.course}, ${whenLabel(new Date(ev.starts_at), ev.time_zone, req.lang)}`.slice(0, 250),
-          customerEmail: req.authUser.email,
+          // Not Apple's hidden relay addresses: ONVO mails receipts from its own
+          // domain, which Apple won't forward.
+          customerEmail: isAppleRelay(req.authUser.email) ? undefined : req.authUser.email,
           customerName: userName,
           redirectUrl: back,
           cancelUrl: back + '&cancelled=1',
@@ -631,4 +636,4 @@ function makePayments(deps) {
   return { registerWebhook, registerRoutes, sweepExpiredHolds, refundRegistration, refundGuest, cancelEventWithRefunds, handleAccountDeletion, markManualRefundSent, HOLD_MINUTES, _handleEvent: handleEvent };
 }
 
-module.exports = { makePayments, HOLD_MINUTES, remainingColones, guestShareColones, cleanPhone };
+module.exports = { makePayments, HOLD_MINUTES, remainingColones, guestShareColones, cleanPhone, isAppleRelay };

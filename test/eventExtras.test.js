@@ -177,3 +177,11 @@ test('unknown method: ONVO says only cards, so it goes by hand (guest and whole 
     assert.strictEqual(db.event_registrations[0].guest_refunds[0].status, 'refunded');
   } finally { onvo.createRefund = original; }
 });
+
+test('Apple private relay addresses are recognised (never sent to ONVO)', () => {
+  const { isAppleRelay } = require('../eventPayments');
+  assert.strictEqual(isAppleRelay('5fwr5cvrnj@privaterelay.appleid.com'), true);
+  assert.strictEqual(isAppleRelay(' ABC@PrivateRelay.AppleID.com '), true);
+  assert.strictEqual(isAppleRelay('felipe@gmail.com'), false);
+  assert.strictEqual(isAppleRelay(null), false);
+});
