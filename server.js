@@ -1184,7 +1184,8 @@ app.post('/api/teetimes/:id/messages', ah(async (req, res) => {
 
 // appleKey: whether the Sign in with Apple key is set up ('ok' | 'missing' |
 // 'unreadable') — never the key itself.
-app.get('/health', (req, res) => res.json({ ok: true, appleKey: appleRevoke.appleKeyStatus() }));
+// commit: which version is running (Render sets RENDER_GIT_COMMIT).
+app.get('/health', (req, res) => res.json({ ok: true, appleKey: appleRevoke.appleKeyStatus(), commit: (process.env.RENDER_GIT_COMMIT || '').slice(0, 7) }));
 
 // --- Public legal/support pages -------------------------------------------
 // Plain server-rendered HTML — reachable at a stable URL with no JS
