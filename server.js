@@ -1185,7 +1185,13 @@ app.post('/api/teetimes/:id/messages', ah(async (req, res) => {
 // appleKey: whether the Sign in with Apple key is set up ('ok' | 'missing' |
 // 'unreadable') — never the key itself.
 // commit: which version is running (Render sets RENDER_GIT_COMMIT).
-app.get('/health', (req, res) => res.json({ ok: true, appleKey: appleRevoke.appleKeyStatus(), commit: (process.env.RENDER_GIT_COMMIT || '').slice(0, 7) }));
+// onvo: real users' mode ('test' | 'live'), whether demo accounts can pay
+// (always test mode), and whether a test webhook secret is set — no keys.
+const onvoInfo = require('./onvo');
+app.get('/health', (req, res) => res.json({
+  ok: true, appleKey: appleRevoke.appleKeyStatus(), commit: (process.env.RENDER_GIT_COMMIT || '').slice(0, 7),
+  onvo: { mode: onvoInfo.onvoMode, demoPayments: onvoInfo.demoPaymentsOn, testWebhook: !!(process.env.ONVO_TEST_WEBHOOK_SECRET || '').trim(), testKeySeparate: !!(process.env.ONVO_TEST_SECRET_KEY || '').trim() },
+}));
 
 // --- Public legal/support pages -------------------------------------------
 // Plain server-rendered HTML — reachable at a stable URL with no JS
