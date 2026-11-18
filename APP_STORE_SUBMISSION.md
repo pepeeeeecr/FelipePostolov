@@ -8,14 +8,19 @@ this file (see the submission checklist you were given separately).
 
 ## 1. Listing text
 
-**App name** (24 / 30 characters)
+**App name** (both languages — already saved in App Store Connect; don't change)
 ```
-Foursome: Golf Tee Times
+Foursome - Find Golf Partners
 ```
 
-**Subtitle** (29 / 30 characters)
+**Subtitle — English (U.K.)** (25 / 30)
 ```
-Find Golfers & Open Tee Times
+Find golfers to play with
+```
+
+**Subtítulo — Spanish (Mexico)** (30 / 30)
+```
+Encontrá con quién jugar golf
 ```
 
 **Promotional text** (161 / 170 characters)
@@ -23,40 +28,56 @@ Find Golfers & Open Tee Times
 Post your tee time and find golfers to join, or browse open rounds near you. Chat with your group and find golf courses nearby.
 ```
 
-**Description**
+**Description — English (U.K.)**
 ```
-Foursome helps golfers find people to play with.
+Foursome is how golfers find people to play with. Post the tee time you already have and fill your group, or join a round near you.
 
-Already have a tee time booked but need a few more in your group? Post
-it — course, date, time, number of open spots, handicap range, and pace
-— and other golfers nearby can request to join. You decide who plays.
+YOUR ROUND, YOUR CALL
+Post your tee time with the course, date, time, open spots, handicap range and pace. Golfers nearby ask to join, and you decide who plays. Once you're in, the round has its own chat. Share it on WhatsApp or add it to your calendar.
 
-Looking for a round to join? Browse open tee times posted by other
-golfers, filter by distance, and request a spot.
+THE SAME PEOPLE, EVERY WEEK
+Start a group for the people you play with. Invite them with a link, keep the conversation in the group chat, and let Foursome post your weekly round for you. Group rounds go to members first; open the spare spots to everyone whenever you like.
 
-STAY IN TOUCH WITH YOUR GROUP
-Once you're confirmed for a round, chat with your host and the other
-approved players right in the app.
+Add the golfers you've played with as friends, and invite them straight to your next round.
 
-SAFETY FIRST
-Block or report anyone, or report a single chat message, any time. Foursome doesn't run background
-checks on users — like any app that connects you with people you
-haven't met, use the same judgment you would anywhere else: consider
-meeting for the first time at the course, and tell someone your plans.
+EVENTS IN COSTA RICA
+Join organised golf days and tournaments. Pay by card or SINPE Móvil, bring up to three guests, use a discount code, and get a full refund if you cancel before the cutoff. If an event is full, join the waitlist. Afterwards, see the results and photos.
 
-FOURSOME EVENTS
-Join organized golf events near you from the Events tab. Pay securely by
-card or SINPE Móvil, see who's going, and cancel for a full refund up to
-the cutoff. Want one somewhere else? Request an event.
+PLAYERS YOU CAN COUNT ON
+Every profile shows a handicap, home course, rounds played and show-up rate, confirmed by the people who played with them. Block or report anyone, as well as a single message, photo or group.
 
-WHAT FOURSOME ISN'T
-Foursome is not a tee time booking service and isn't affiliated with any
-golf course or booking platform. Posting or joining a round doesn't
-reserve anything with the course — you're responsible for actually
-having a tee time to share. The "Courses" tab lets you search for golf
-courses or see what's nearby; it doesn't book anything.
+COURSES
+Search for golf courses or see what's nearby, and post a round from any course's page.
 
-Sign in with Apple, Google or email, or jump in as a guest with no account at all.
+Get notified about new rounds at your home course and events near it, with a reminder the evening before you play. In Spanish or English, in kilometres or miles. Sign in with Apple, Google or email, or start as a guest.
+
+Foursome doesn't book tee times and isn't affiliated with any golf course.
+```
+
+**Descripción — Spanish (Mexico)** (escrita para Costa Rica)
+```
+Foursome es la forma de encontrar con quién jugar golf. Publicá la salida que ya tenés y completá el grupo, o unite a una ronda cerca de vos.
+
+TU RONDA, TU DECISIÓN
+Publicá tu tee time con el campo, la fecha, la hora, los espacios libres, el rango de hándicap y el ritmo de juego. Los golfistas de la zona piden unirse y vos decidís quién juega. Una vez confirmados, la ronda tiene su propio chat. Compartila por WhatsApp o agregala a tu calendario.
+
+LA MISMA GENTE, CADA SEMANA
+Armá un grupo con los que jugás siempre. Invitalos con un enlace, conversen en el chat del grupo y dejá que Foursome publique la ronda semanal por vos. Las rondas del grupo son primero para los miembros; cuando querás, abrís a todos los espacios que sobran.
+
+Agregá como amigos a los golfistas con los que ya jugaste e invitalos directo a tu próxima ronda.
+
+EVENTOS EN COSTA RICA
+Inscribite en torneos y días de golf organizados. Pagá con tarjeta o SINPE Móvil, llevá hasta tres invitados, usá un código de descuento y recibí el reembolso completo si cancelás antes del plazo. Si el evento está lleno, quedate en la lista de espera. Después, mirá los resultados y las fotos.
+
+JUGADORES CON LOS QUE PODÉS CONTAR
+Cada perfil muestra el hándicap, el campo habitual, las rondas jugadas y con qué frecuencia la persona llega, según quienes jugaron con ella. Podés bloquear o reportar a cualquiera, y también un mensaje, una foto o un grupo.
+
+CAMPOS
+Buscá campos de golf o mirá cuáles hay cerca, y publicá una ronda desde la página de cualquier campo.
+
+Te avisamos de rondas nuevas en tu campo habitual y de eventos cerca, con un recordatorio la noche antes de jugar. En español o inglés, en kilómetros o millas. Entrá con Apple, Google o tu correo, o empezá como invitado.
+
+Foursome no reserva tee times y no está afiliado a ningún campo de golf.
 ```
 
 **Keywords** (97 / 100 characters)
