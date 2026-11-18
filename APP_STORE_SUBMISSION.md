@@ -18,7 +18,7 @@ Foursome - Find Golf Partners
 Find golfers to play with
 ```
 
-**Subtítulo — Spanish (Mexico)** (30 / 30)
+**Subtítulo — Spanish (Mexico)** (29 / 30)
 ```
 Encontrá con quién jugar golf
 ```
