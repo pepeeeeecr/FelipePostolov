@@ -16,6 +16,7 @@ const { push } = require('./i18n');
 
 const HOLD_MINUTES = 20; // enough for card + 3DS, or a SINPE Móvil transfer
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://felipepostolov.onrender.com').replace(/\/$/, '');
+const RETURN_PAGE_BASE = 'https://felipepostolov.onrender.com';
 // Where the "Back to Foursome" button on the return page may point: the
 // app's own scheme, or Expo Go while developing.
 const APP_RETURN_PATTERN = /^(foursomemobile|exp|exps):\/\/[^\s"'<>]*$/;
@@ -381,8 +382,10 @@ function makePayments(deps) {
       }
 
       const { data: ev } = await supabase.from('events').select('*').eq('id', reg.event_id).single();
-      // The domain if it's reachable, else the onrender address (domainHealth.js).
-      const back = `${require('./domainHealth').publicBase()}/pay/return?r=${reg.id}&app=${encodeURIComponent(appReturn)}`;
+      // The return page is on the long-standing onrender address: some
+      // networks block newly registered domains (foursomecr.com), and this
+      // page only exists to hand the player back to the app.
+      const back = `${RETURN_PAGE_BASE}/pay/return?r=${reg.id}&app=${encodeURIComponent(appReturn)}`;
       let session;
       const spotsText = (reg.spots || 1) > 1 ? ` (${reg.spots} ${req.lang === 'en' ? 'spots' : 'espacios'})` : '';
       try {
@@ -425,6 +428,7 @@ function makePayments(deps) {
 <h2 style="margin:0 0 10px;">${copy.title}</h2>
 <p style="opacity:.75;max-width:360px;margin:0 auto 28px;line-height:1.45;">${copy.body}</p>
 <a href="${escapeHtml(link)}" style="display:inline-block;background:#2E5E3A;color:#fff;text-decoration:none;padding:14px 26px;border-radius:12px;font-weight:600;">${copy.back}</a>
+<script>setTimeout(function () { location.href = ${JSON.stringify(link).replace(/</g, '\\u003c')}; }, 400);</script>
 </body></html>`);
     });
 

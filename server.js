@@ -668,14 +668,11 @@ app.use(express.json({ limit: '1mb' })); // profile photos arrive as ~50 KB of b
 // static files. 302, not 301, so it can be changed without browsers
 // remembering it.
 const OLD_HOST = 'felipepostolov.onrender.com';
-// Only while the domain answers (checked every 2 minutes).
-const domainHealth = require('./domainHealth');
-domainHealth.start();
 const NEW_ORIGIN = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
 const FORWARDED_PAGE = /^\/(|privacy|terms|refund|support|delete-account)$|^\/(r|e|g|c)\/[^.]+$/;
 app.use((req, res, next) => {
   if ((req.method === 'GET' || req.method === 'HEAD') && NEW_ORIGIN && !NEW_ORIGIN.includes(OLD_HOST) &&
-      req.hostname === OLD_HOST && FORWARDED_PAGE.test(req.path) && domainHealth.domainHealthy()) {
+      req.hostname === OLD_HOST && FORWARDED_PAGE.test(req.path)) {
     return res.redirect(302, NEW_ORIGIN + req.originalUrl);
   }
   next();
@@ -1193,7 +1190,6 @@ app.post('/api/teetimes/:id/messages', ah(async (req, res) => {
 const onvoInfo = require('./onvo');
 app.get('/health', (req, res) => res.json({
   ok: true, appleKey: appleRevoke.appleKeyStatus(), commit: (process.env.RENDER_GIT_COMMIT || '').slice(0, 7),
-  domain: domainHealth.status(),
   onvo: { mode: onvoInfo.onvoMode, demoPayments: onvoInfo.demoPaymentsOn, testWebhook: !!(process.env.ONVO_TEST_WEBHOOK_SECRET || '').trim(), testKeySeparate: !!(process.env.ONVO_TEST_SECRET_KEY || '').trim() },
 }));
 
