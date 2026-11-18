@@ -381,7 +381,8 @@ function makePayments(deps) {
       }
 
       const { data: ev } = await supabase.from('events').select('*').eq('id', reg.event_id).single();
-      const back = `${PUBLIC_BASE_URL}/pay/return?r=${reg.id}&app=${encodeURIComponent(appReturn)}`;
+      // The domain if it's reachable, else the onrender address (domainHealth.js).
+      const back = `${require('./domainHealth').publicBase()}/pay/return?r=${reg.id}&app=${encodeURIComponent(appReturn)}`;
       let session;
       const spotsText = (reg.spots || 1) > 1 ? ` (${reg.spots} ${req.lang === 'en' ? 'spots' : 'espacios'})` : '';
       try {
