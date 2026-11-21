@@ -116,12 +116,15 @@ The terms require players to be **18 or older** (legalContent.js), and the app l
 don't know each other chat and arrange to meet. **Chosen (safest): override the rating to 18+**
 so the store rating matches the terms.
 
-Features screen:
+Features screen — saved:
 - Parental Controls: **No**
 - Age Assurance: **No** (players confirm they are 18+ by accepting the terms; nothing verifies age)
 - Unrestricted Web Access: **No** (the app opens only the ONVO payment page and Foursome's own pages)
 - User-Generated Content: **Yes** (profiles, photos, rounds, group and event photos)
+- Social Media: **Yes** (profiles, friends, groups)
+- Social Media Disabled for Users Under 13: **No** (the app is 18+ for everyone)
 - Messaging and Chat: **Yes** (round, group and event chats)
+- Shared Location: **No** (players see courses, never another player's location)
 - Advertising: **No**
 
 Mature themes, medical/wellness, sexuality/nudity, violence: **None** for every question.
