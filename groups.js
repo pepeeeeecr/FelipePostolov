@@ -1,3 +1,4 @@
+const { nearFrom } = require('./near');
 // Groups (see supabase-groups.sql).
 //
 // - Anyone signed in (or a guest) creates a group: a name, a home course and
@@ -325,8 +326,7 @@ function makeGroups(deps) {
       ]);
       const mine = new Set((myRows.data || []).map(m => m.group_id));
       const q = String(req.query.q || '').trim().toLowerCase();
-      const lat = Number(req.query.lat), lng = Number(req.query.lng);
-      const here = Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+      const here = nearFrom(req);
       let list = (groups || []).filter(g => !g.removed_at && !mine.has(g.id) && !blocked.has(g.creator_id) &&
         !banned.has(g.creator_id) && !demoMismatch(userId, g.creator_id));
       if (q) list = list.filter(g => `${g.name} ${g.home_course}`.toLowerCase().includes(q));

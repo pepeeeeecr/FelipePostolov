@@ -19,6 +19,7 @@ const places = require('./places');
 const { makeNotifier } = require('./notify');
 const { registerAttendance } = require('./attendance');
 const { registerActivity } = require('./activity');
+const { nearFrom } = require('./near');
 // Set up near the bottom (they need routes and helpers defined below).
 let notifier = null;
 let attendance = null;
@@ -1990,11 +1991,9 @@ async function enrichCoursesWithRatings(courses) {
 const COURSE_SEARCH_UNAVAILABLE = "Course search isn't responding right now. Try again in a minute, or search by course name.";
 
 app.get('/api/golf-courses/nearby', ah(async (req, res) => {
-  const lat = parseFloat(req.query.lat);
-  const lng = parseFloat(req.query.lng);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-    return res.status(400).json({ error: 'lat and lng are required' });
-  }
+  const near = nearFrom(req);
+  if (!near) return res.status(400).json({ error: 'lat and lng are required' });
+  const { lat, lng } = near;
   const radiusMiles = Math.min(parseFloat(req.query.radiusMiles) || NEARBY_MAX_RADIUS_MILES, NEARBY_MAX_RADIUS_MILES);
 
   // Costa Rica: straight from our own course list — instant and complete.

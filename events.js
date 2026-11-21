@@ -1,3 +1,4 @@
+const { nearFrom } = require('./near');
 // Paid events: listing, the owner-only admin routes, and "Request an event".
 // Prices are whole colones (CRC). Payment, holds and refunds are in
 // eventPayments.js (see supabase-events.sql and supabase-event-payments.sql).
@@ -168,8 +169,7 @@ function registerEventRoutes(app, deps) {
 
   // Upcoming open events, soonest first, with distance when lat/lng is sent.
   app.get('/api/events', ah(async (req, res) => {
-    const lat = parseFloat(req.query.lat);
-    const lng = parseFloat(req.query.lng);
+    const near = nearFrom(req);
     const demoViewer = isDemoViewer(verifiedUserId(req));
     if (demoViewer) await keepDemoEventsCurrent();
     let { data: rows, error } = await supabase
@@ -184,7 +184,7 @@ function registerEventRoutes(app, deps) {
     const regs = await registrationsFor((rows || []).map(r => r.id));
     const offers = deps.extras ? await deps.extras.activeOffers((rows || []).map(r => r.id)) : new Map();
     const viewerId = verifiedUserId(req);
-    const here = Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : {};
+    const here = near || {};
     // Past events (last 90 days) with results or photos posted.
     let recent = [];
     const { data: past, error: pastErr } = await supabase.from('events').select('*').eq('status', 'open')
@@ -204,10 +204,8 @@ function registerEventRoutes(app, deps) {
     if (error) return res.status(500).json({ error: 'Could not load event' });
     if (!row) return res.status(404).json({ error: 'Event not found' });
     if (isDemoEvent(row) !== isDemoViewer(verifiedUserId(req))) return res.status(404).json({ error: 'Event not found' });
-    const lat = parseFloat(req.query.lat);
-    const lng = parseFloat(req.query.lng);
     const regs = (await registrationsFor([row.id])).get(row.id);
-    const here = Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : {};
+    const here = nearFrom(req) || {};
     const viewerId = verifiedUserId(req);
     const offers = deps.extras ? (await deps.extras.activeOffers([row.id])).get(row.id) || [] : [];
     const json = eventJson(row, regs, { haversineMiles, ...here, lang: req.lang, offers, viewerId });

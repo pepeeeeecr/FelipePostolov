@@ -1,3 +1,4 @@
+const { nearFrom } = require('./near');
 // "What's happening nearby" — the short line at the top of Discover:
 //   golfers whose home course is within 100 km, open rounds this week
 //   within 100 km, and the next event (nearest in time, within 100 km).
@@ -60,9 +61,7 @@ function registerActivity(app, { supabase, ah, verifiedUserId, haversineMiles, p
 
   app.get('/api/activity', ah(async (req, res) => {
     const viewerId = verifiedUserId(req);
-    let origin = null;
-    const lat = parseFloat(req.query.lat), lng = parseFloat(req.query.lng);
-    if (Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) origin = { lat, lng };
+    let origin = nearFrom(req);
     if (!origin && viewerId) {
       const { data: me } = await supabase.from('users').select('home_course').eq('user_id', viewerId).maybeSingle();
       const home = me && me.home_course ? peekHome(me.home_course) : null;
