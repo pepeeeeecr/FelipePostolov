@@ -143,6 +143,8 @@ Contests: **Infrequent/Mild** (golf events and tournaments with results). Safest
 
 Additional information: Age Rating Override **18+**; Made for Kids **No**; Age Suitability URL empty.
 
+**Result — saved: App Information shows 18+.**
+
 ## 2. App Privacy questionnaire (App Store Connect → App Privacy)
 
 **Reminder:** the Privacy Policy URL was saved only under English (U.S.), which was removed.
