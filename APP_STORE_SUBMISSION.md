@@ -102,6 +102,8 @@ tee times,golfer,buddy,handicap,course,round,tournament,event,group,friends,club
 Words already in the name or subtitle (golf, jugar, find, partners, people, play, Foursome) are left out: Apple already
 searches those, so repeating them wastes space. No "rating" (ratings are switched off).
 
+**Support URL** `https://foursomecr.com/support` and **Marketing URL** `https://foursomecr.com` — enter on each language's version page (Spanish (Mexico) saved).
+
 **Category** — saved
 - Primary: **Sports**
 - Secondary: **Social Networking**
@@ -109,6 +111,9 @@ searches those, so repeating them wastes space. No "rating" (ratings are switche
 ---
 
 ## 2. App Privacy questionnaire (App Store Connect → App Privacy)
+
+**Reminder:** the Privacy Policy URL was saved only under English (U.S.), which was removed.
+Re-enter `https://foursomecr.com/privacy` for **Spanish (Mexico)** and **English (U.K.)** on the App Privacy page.
 
 Based on a direct read of `server.js`, the Supabase schema, and both
 client apps — not a guess. Overall answer to *"Does this app use data to
