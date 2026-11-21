@@ -84,10 +84,18 @@ Te avisamos de rondas nuevas en tu campo habitual y de eventos cerca, con un rec
 Foursome no reserva tee times y no está afiliado a ningún campo de golf.
 ```
 
-**Keywords** (97 / 100 characters)
+**Palabras clave — Spanish (Mexico)** (92 / 100)
 ```
-golf,golfer,tee time,golf buddy,foursome,playing partner,handicap,golf course,pace of play,rating
+tee time,golfista,ronda,torneo,campo,club,handicap,compañeros,grupo,amigos,evento,Costa Rica
 ```
+
+**Keywords — English (U.K.)** (96 / 100)
+```
+tee times,golfer,buddy,handicap,course,round,tournament,event,group,friends,club,Costa Rica,pace
+```
+
+Words already in the name or subtitle (golf, jugar, find, partners, people, play, Foursome) are left out: Apple already
+searches those, so repeating them wastes space. No "rating" (ratings are switched off).
 
 **Category** — saved
 - Primary: **Sports**
