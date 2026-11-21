@@ -135,7 +135,8 @@ Medical or Wellness screen — saved: Medical or Treatment Information **None**,
 Sexuality or Nudity screen — saved: Mature or Suggestive Themes **None**, Sexual Content or Nudity **None**,
 Graphic Sexual Content and Nudity **None**.
 
-Violence: **None** for every question.
+Violence screen — saved: Cartoon or Fantasy Violence, Realistic Violence, Prolonged Graphic or Sadistic
+Realistic Violence, Guns or Other Weapons: **None**.
 
 Chance-based activities: Simulated Gambling **None**, Gambling **No**, Loot Boxes **No**.
 Contests: **Infrequent/Mild** (golf events and tournaments with results). Safest honest answer.
