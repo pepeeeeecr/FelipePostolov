@@ -110,6 +110,27 @@ searches those, so repeating them wastes space. No "rating" (ratings are switche
 
 ---
 
+## Age rating (App Information → Age Rating → Edit)
+
+The terms require players to be **18 or older** (legalContent.js), and the app lets adults who
+don't know each other chat and arrange to meet. **Chosen (safest): override the rating to 18+**
+so the store rating matches the terms.
+
+Features screen:
+- Parental Controls: **No**
+- Age Assurance: **No** (players confirm they are 18+ by accepting the terms; nothing verifies age)
+- Unrestricted Web Access: **No** (the app opens only the ONVO payment page and Foursome's own pages)
+- User-Generated Content: **Yes** (profiles, photos, rounds, group and event photos)
+- Messaging and Chat: **Yes** (round, group and event chats)
+- Advertising: **No**
+
+Mature themes, medical/wellness, sexuality/nudity, violence: **None** for every question.
+
+Chance-based activities: Simulated Gambling **None**, Gambling **No**, Loot Boxes **No**.
+Contests: **Infrequent/Mild** (golf events and tournaments with results). Safest honest answer.
+
+Additional information: Age Rating Override **18+**; Made for Kids **No**; Age Suitability URL empty.
+
 ## 2. App Privacy questionnaire (App Store Connect → App Privacy)
 
 **Reminder:** the Privacy Policy URL was saved only under English (U.S.), which was removed.
