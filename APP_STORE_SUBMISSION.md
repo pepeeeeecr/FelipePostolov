@@ -127,7 +127,10 @@ Features screen — saved:
 - Shared Location: **No** (players see courses, never another player's location)
 - Advertising: **No**
 
-Mature themes, medical/wellness, sexuality/nudity, violence: **None** for every question.
+Mature Themes screen — saved: Profanity or Crude Humor **None**, Horror/Fear Themes **None**,
+Alcohol, Tobacco, or Drug Use or References **None**, Dating and Relationships **No** (Foursome is for golf, not dating).
+
+Medical/wellness, sexuality/nudity, violence: **None** / **No** for every question.
 
 Chance-based activities: Simulated Gambling **None**, Gambling **No**, Loot Boxes **No**.
 Contests: **Infrequent/Mild** (golf events and tournaments with results). Safest honest answer.
