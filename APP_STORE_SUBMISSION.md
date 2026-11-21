@@ -149,6 +149,7 @@ Additional information: Age Rating Override **18+**; Made for Kids **No**; Age S
 
 **Reminder:** the Privacy Policy URL was saved only under English (U.S.), which was removed.
 Re-enter `https://foursomecr.com/privacy` for **Spanish (Mexico)** and **English (U.K.)** on the App Privacy page.
+→ **Done: saved for both languages.**
 
 Based on a direct read of `server.js`, the Supabase schema, and both
 client apps — not a guess. Overall answer to *"Does this app use data to
