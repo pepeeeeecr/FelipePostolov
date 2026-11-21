@@ -162,7 +162,7 @@ There are no analytics, ad, or tracking SDKs anywhere in the codebase.
 | **Contact Info — Name** | Yes | App Functionality | Yes | No |
 | **Contact Info — Email Address** | Yes (only for full accounts — email, Apple or Google sign-in; with Apple's Hide My Email it's a private relay address; guest mode needs no email) | App Functionality | Yes | No |
 | **Contact Info — Phone Number** | Yes, only if a player paid by SINPE Móvil and cancels: the number the organizer sends the refund to | App Functionality | Yes | No |
-| **Location — Precise Location** | Yes, once the user grants permission (checked when the app is opened or brought to the foreground, only while in use) | App Functionality | No — sent with nearby-course searches, never stored | No |
+| Location — Precise Location | **No — not ticked** (see below) | — | — | — |
 | **User Content — Emails or Text Messages** (round, group and event chat messages) — chosen to be safe; chats could also count as Other User Content | Yes | App Functionality | Yes | No |
 | **User Content — Customer Support** (the email a player sends with Contact us; it includes the app version) — chosen to be safe | Yes, only if they write in | App Functionality | Yes | No |
 | **User Content — Other User Content** (bio, handicap, round details/notes, groups, friends, guests' names on group payments, who showed up to a round, reports you file; star ratings are switched off) | Yes | App Functionality | Yes | No |
@@ -177,6 +177,18 @@ There are no analytics, ad, or tracking SDKs anywhere in the codebase.
 | Browsing/Search History | No | — | — | — |
 | Usage Data (analytics) | No | — | — | — |
 | Diagnostics | No | — | — | — |
+
+**Why Precise Location is not ticked (checked 2026-11-21).** Apple: "'Collect' refers to transmitting
+data off the device in a way that allows you and/or your third-party partners to access it for a period
+longer than what is necessary to service the transmitted request in real time." The app sends the
+player's coordinates for each nearby search (courses, events, groups, the activity line), the server
+uses them for that one request, and nothing keeps them: not Supabase, not our server logs (no request
+logging), not ONVO or push notifications. OpenStreetMap only ever gets a rounded ~5.5 km grid point
+from our server. Server memory caches results by rounded area (~5.5 km / ~10 km), never by player.
+Since commit c4a4c55 (server) and the EAS Update of 2026-11-21, the coordinates travel in the
+`X-Foursome-Near` header instead of the web address, so Render's request logs (which record the
+address) don't get them. Older requests with `?lat=&lng=` expire from Render's logs with its
+retention period. This matches the privacy policy: "We don't store your coordinates."
 
 **One honest caveat, not verifiable from this app's own code:** Expo/EAS
 and Supabase are third-party SDKs/infrastructure this app depends on.
