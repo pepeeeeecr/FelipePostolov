@@ -151,6 +151,9 @@ Additional information: Age Rating Override **18+**; Made for Kids **No**; Age S
 Re-enter `https://foursomecr.com/privacy` for **Spanish (Mexico)** and **English (U.K.)** on the App Privacy page.
 → **Done: saved for both languages.**
 
+**Data collection — set up 2026-11-21:** the 10 types in the table below, each App Functionality only,
+linked to identity Yes, tracking No. Precise Location unticked. Tracking question: No.
+
 Based on a direct read of `server.js`, the Supabase schema, and both
 client apps — not a guess. Overall answer to *"Does this app use data to
 track you?"*: **No** — nothing here is shared with data brokers or used
