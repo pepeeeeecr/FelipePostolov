@@ -130,7 +130,9 @@ Features screen — saved:
 Mature Themes screen — saved: Profanity or Crude Humor **None**, Horror/Fear Themes **None**,
 Alcohol, Tobacco, or Drug Use or References **None**, Dating and Relationships **No** (Foursome is for golf, not dating).
 
-Medical/wellness, sexuality/nudity, violence: **None** / **No** for every question.
+Medical or Wellness screen — saved: Medical or Treatment Information **None**, Health or Wellness Topics **No**.
+
+Sexuality/nudity, violence: **None** for every question.
 
 Chance-based activities: Simulated Gambling **None**, Gambling **No**, Loot Boxes **No**.
 Contests: **Infrequent/Mild** (golf events and tournaments with results). Safest honest answer.
