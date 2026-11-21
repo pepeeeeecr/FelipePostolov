@@ -163,7 +163,9 @@ There are no analytics, ad, or tracking SDKs anywhere in the codebase.
 | **Contact Info — Email Address** | Yes (only for full accounts — email, Apple or Google sign-in; with Apple's Hide My Email it's a private relay address; guest mode needs no email) | App Functionality | Yes | No |
 | **Contact Info — Phone Number** | Yes, only if a player paid by SINPE Móvil and cancels: the number the organizer sends the refund to | App Functionality | Yes | No |
 | **Location — Precise Location** | Yes, once the user grants permission (checked when the app is opened or brought to the foreground, only while in use) | App Functionality | No — sent with nearby-course searches, never stored | No |
-| **User Content — Other User Content** (bio, round details/notes, round and group chat messages, groups, friends, guests' names on group payments, who showed up to a round, reports you file; star ratings are switched off) | Yes | App Functionality | Yes | No |
+| **User Content — Emails or Text Messages** (round, group and event chat messages) — chosen to be safe; chats could also count as Other User Content | Yes | App Functionality | Yes | No |
+| **User Content — Customer Support** (the email a player sends with Contact us; it includes the app version) — chosen to be safe | Yes, only if they write in | App Functionality | Yes | No |
+| **User Content — Other User Content** (bio, handicap, round details/notes, groups, friends, guests' names on group payments, who showed up to a round, reports you file; star ratings are switched off) | Yes | App Functionality | Yes | No |
 | **User Content — Photos or Videos** (optional profile photo; event photos the organizer posts) | Yes | App Functionality | Yes | No |
 | **Identifiers — User ID** | Yes | App Functionality | Yes | No |
 | **Purchases — Purchase History** (paid event spots: amount, date, refund status) | Yes, only if the user pays for an event | App Functionality | Yes | No |
