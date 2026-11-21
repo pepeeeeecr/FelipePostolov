@@ -27,9 +27,14 @@ Find people to play golf with
 Encontrá con quién jugar golf
 ```
 
-**Promotional text** (161 / 170 characters)
+**Texto promocional — Spanish (Mexico)** (145 / 170)
 ```
-Post your tee time and find golfers to join, or browse open rounds near you. Chat with your group and find golf courses nearby.
+Publicá tu tee time y completá el grupo, o unite a una ronda cerca de vos. Jugá con los de siempre e inscribite en eventos de golf en Costa Rica.
+```
+
+**Promotional text — English (U.K.)** (132 / 170)
+```
+Post your tee time and fill your group, or join a round near you. Play with your regulars and sign up for golf events in Costa Rica.
 ```
 
 **Description — English (U.K.)**
