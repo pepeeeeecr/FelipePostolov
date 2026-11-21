@@ -138,7 +138,7 @@ Graphic Sexual Content and Nudity **None**.
 Violence screen — saved: Cartoon or Fantasy Violence, Realistic Violence, Prolonged Graphic or Sadistic
 Realistic Violence, Guns or Other Weapons: **None**.
 
-Chance-based activities: Simulated Gambling **None**, Gambling **No**, Loot Boxes **No**.
+Chance-Based Activities screen — saved: Simulated Gambling **None**, Gambling **No**, Loot Boxes **No**.
 Contests: **Infrequent/Mild** (golf events and tournaments with results). Safest honest answer.
 
 Additional information: Age Rating Override **18+**; Made for Kids **No**; Age Suitability URL empty.
