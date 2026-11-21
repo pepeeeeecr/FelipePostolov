@@ -8,17 +8,21 @@ this file (see the submission checklist you were given separately).
 
 ## 1. Listing text
 
+**Localizations (saved in App Store Connect → App Information):** Spanish (Mexico) is the
+primary language; English (U.K.) is the second. English (U.S.) was removed. The Costa Rica
+App Store shows Spanish (Mexico) by default and English (U.K.) as its only other language.
+
 **App name** (both languages — already saved in App Store Connect; don't change)
 ```
 Foursome - Find Golf Partners
 ```
 
-**Subtitle — English (U.K.)** (25 / 30)
+**Subtitle — English (U.K.)** (29 / 30) — saved
 ```
-Find golfers to play with
+Find people to play golf with
 ```
 
-**Subtítulo — Spanish (Mexico)** (29 / 30)
+**Subtítulo — Spanish (Mexico)** (29 / 30) — saved
 ```
 Encontrá con quién jugar golf
 ```
@@ -44,7 +48,7 @@ EVENTS IN COSTA RICA
 Join organised golf days and tournaments. Pay by card or SINPE Móvil, bring up to three guests, use a discount code, and get a full refund if you cancel before the cutoff. If an event is full, join the waitlist. Afterwards, see the results and photos.
 
 PLAYERS YOU CAN COUNT ON
-Every profile shows a handicap, home course, rounds played and show-up rate, confirmed by the people who played with them. Block or report anyone, as well as a single message, photo or group.
+Profiles show handicap, home course, rounds played and show-up rate, confirmed by the people who played with them. Block or report anyone, as well as a single message, photo or group.
 
 COURSES
 Search for golf courses or see what's nearby, and post a round from any course's page.
@@ -54,9 +58,9 @@ Get notified about new rounds at your home course and events near it, with a rem
 Foursome doesn't book tee times and isn't affiliated with any golf course.
 ```
 
-**Descripción — Spanish (Mexico)** (escrita para Costa Rica)
+**Descripción — Spanish (Mexico)** (escrita para Costa Rica; 1826 / 4000)
 ```
-Foursome es la forma de encontrar con quién jugar golf. Publicá la salida que ya tenés y completá el grupo, o unite a una ronda cerca de vos.
+Foursome es la forma de encontrar con quién jugar golf. Publicá el tee time que ya tenés y completá el grupo, o unite a una ronda cerca de vos.
 
 TU RONDA, TU DECISIÓN
 Publicá tu tee time con el campo, la fecha, la hora, los espacios libres, el rango de hándicap y el ritmo de juego. Los golfistas de la zona piden unirse y vos decidís quién juega. Una vez confirmados, la ronda tiene su propio chat. Compartila por WhatsApp o agregala a tu calendario.
@@ -70,7 +74,7 @@ EVENTOS EN COSTA RICA
 Inscribite en torneos y días de golf organizados. Pagá con tarjeta o SINPE Móvil, llevá hasta tres invitados, usá un código de descuento y recibí el reembolso completo si cancelás antes del plazo. Si el evento está lleno, quedate en la lista de espera. Después, mirá los resultados y las fotos.
 
 JUGADORES CON LOS QUE PODÉS CONTAR
-Cada perfil muestra el hándicap, el campo habitual, las rondas jugadas y con qué frecuencia la persona llega, según quienes jugaron con ella. Podés bloquear o reportar a cualquiera, y también un mensaje, una foto o un grupo.
+Los perfiles muestran el hándicap, el campo habitual, las rondas jugadas y con qué frecuencia llega cada persona, según quienes jugaron con ella. Podés bloquear o reportar a cualquiera, y también un mensaje, una foto o un grupo.
 
 CAMPOS
 Buscá campos de golf o mirá cuáles hay cerca, y publicá una ronda desde la página de cualquier campo.
@@ -85,9 +89,9 @@ Foursome no reserva tee times y no está afiliado a ningún campo de golf.
 golf,golfer,tee time,golf buddy,foursome,playing partner,handicap,golf course,pace of play,rating
 ```
 
-**Suggested category**
+**Category** — saved
 - Primary: **Sports**
-- Secondary (optional): **Social Networking**
+- Secondary: **Social Networking**
 
 ---
 
