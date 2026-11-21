@@ -132,7 +132,10 @@ Alcohol, Tobacco, or Drug Use or References **None**, Dating and Relationships *
 
 Medical or Wellness screen — saved: Medical or Treatment Information **None**, Health or Wellness Topics **No**.
 
-Sexuality/nudity, violence: **None** for every question.
+Sexuality or Nudity screen — saved: Mature or Suggestive Themes **None**, Sexual Content or Nudity **None**,
+Graphic Sexual Content and Nudity **None**.
+
+Violence: **None** for every question.
 
 Chance-based activities: Simulated Gambling **None**, Gambling **No**, Loot Boxes **No**.
 Contests: **Infrequent/Mild** (golf events and tournaments with results). Safest honest answer.
