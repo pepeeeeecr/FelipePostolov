@@ -110,10 +110,10 @@ searches those, so repeating them wastes space. No "rating" (ratings are switche
 
 ---
 
-## Pricing and availability
+## Pricing and availability (saved 2026-11-21)
 
 - Price: **Free**, base country Costa Rica — saved 2026-11-21.
-- Availability: **Costa Rica only**; new countries not added automatically; not offered on Apple silicon Macs or Apple Vision Pro (never tested there).
+- Availability: **Costa Rica only** (saved); new countries not added automatically; not offered on Apple silicon Macs or Apple Vision Pro (never tested there).
 
 ## Age rating (App Information → Age Rating → Edit)
 
@@ -294,8 +294,8 @@ HOW TO TEST
    through ONVO, so the organizer sends them by hand to the number the
    player confirms in the app, within 3 business days.
 
-Foursome is an app only; https://foursomecr.com is its landing page
-and the server the app talks to for everything above. Privacy Policy,
+Foursome is an app only; https://foursomecr.com is its landing page.
+The app is available in Costa Rica only. Privacy Policy,
 Terms of Service, Refund Policy, Support (contact:
 foursomeapp.golf@gmail.com) and how to delete an account are at
 https://foursomecr.com/privacy, https://foursomecr.com/terms,
