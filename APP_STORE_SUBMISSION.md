@@ -110,6 +110,11 @@ searches those, so repeating them wastes space. No "rating" (ratings are switche
 
 ---
 
+## Pricing and availability
+
+- Price: **Free**, base country Costa Rica — saved 2026-11-21.
+- Availability: **Costa Rica only**; new countries not added automatically; not offered on Apple silicon Macs or Apple Vision Pro (never tested there).
+
 ## Age rating (App Information → Age Rating → Edit)
 
 The terms require players to be **18 or older** (legalContent.js), and the app lets adults who
