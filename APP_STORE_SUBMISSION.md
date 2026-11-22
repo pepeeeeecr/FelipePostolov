@@ -153,6 +153,7 @@ Re-enter `https://foursomecr.com/privacy` for **Spanish (Mexico)** and **English
 
 **Data collection — set up 2026-11-21:** the 10 types in the table below, each App Functionality only,
 linked to identity Yes, tracking No. Precise Location unticked. Tracking question: No.
+**Published 2026-11-21.**
 
 Based on a direct read of `server.js`, the Supabase schema, and both
 client apps — not a guess. Overall answer to *"Does this app use data to
