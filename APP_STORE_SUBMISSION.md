@@ -218,87 +218,33 @@ field. Enter the demo account's email and password into the dedicated
 those credentials were provided separately and are not written here.
 
 ```
-Foursome lets golfers post open tee times and find others to join. Two
-test accounts are provided so you can exercise both sides of the core
-flow (hosting and joining a round, including chat):
+Foursome lets golfers post tee times they already have and find others to join. It doesn't book tee times. The app is available in Costa Rica only.
 
-- "Foursome Demo" — the account whose login is in the Sign-In Required
-  fields above. Use this to sign in and review the app as a normal user.
-- "Foursome Demo Host" — a second account that has posted two open
-  rounds and already approved "Foursome Demo" to join one of them, so you
-  can see a confirmed round and existing chat history immediately without
-  needing the second account's credentials.
+DEMO ACCOUNTS
+- "Foursome Demo": the login in the Sign-In Required fields. On the welcome screen tap "Log in" (not "Sign up" or "Continue as guest").
+- "Foursome Demo Host": a second account that has posted two rounds and already approved "Foursome Demo" for one of them. You don't need its login.
+The demo accounts only see each other's rounds and events, so nothing you do reaches real users. Demo dates stay about a week ahead.
 
 HOW TO TEST
+1. Discover tab: two open rounds by "Foursome Demo Host", at Bethpage Black Golf Course and Marine Park Golf Course.
+2. Rounds tab ("My rounds"): the Bethpage Black round shows "Approved" (the join request was already accepted).
+3. Open that round's chat: two messages are there. Send one. To report a message, tap "Report" next to the sender's name or long-press the message.
+4. Back on Discover, tap "Request to join" on the Marine Park round. It appears on the Rounds tab as "Pending"; "Withdraw request" undoes it.
+5. Rounds tab, "Groups": groups, group chat and weekly rounds. Profile tab: edit profile, Friends, and Settings (Privacy Policy, Terms, Help with Contact us, Blocked users, and "Delete account", which you can open without deleting).
 
-1. Launch the app and sign in as "Foursome Demo" (use the credentials in
-   the Sign-In Required fields above — tap "Log in" on the welcome
-   screen, not "Sign up" or "Continue as guest").
-2. You'll land on the Discover tab. Two upcoming rounds hosted by
-   "Foursome Demo Host" are visible — "Bethpage Black Golf Course" and
-   "Marine Park Golf Course" — this demonstrates browsing open rounds.
-   (Both dates are always about a week out, so neither will have
-   expired by the time you review.)
-3. Go to the "My Rounds" tab. Under rounds you've joined, you'll see
-   the Bethpage Black round with status "Approved" — this demonstrates the join
-   request/approval flow already completed by the two seeded accounts.
-4. Tap into that round's chat. You'll see two existing messages between
-   the host and this account — send a new message to confirm chat works
-   in both directions. To report a message, tap "Report" next to the
-   sender's name (or long-press the message) and pick a reason.
-5. To see the "Request to join" button itself (separate from the
-   already-approved outcome in steps 2-4): back on Discover, tap
-   "Request to join" on the "Marine Park Golf Course" round. It then
-   appears under "Requested to join" on My Rounds with status
-   "Pending", and you can tap "Withdraw request" to undo it. The demo
-   accounts only see each other's rounds, so this never sends a request
-   to a real user.
-6. Other reviewable features from this same account: Profile tab (edit
-   profile, see past rounds), Settings (Privacy Policy, Terms of Service,
-   Help — a short FAQ with a Contact us button —, Blocked users, Delete
-   Account — all reachable without needing to actually delete the test
-   account).
-7. Sign-in options: Sign in with Apple, Sign in with Google, email and
-   password, or guest mode (no account). Sign in with Apple is offered
-   alongside Google, as Guideline 4.8 requires, and is shown first. You
-   can use the demo account above (email and password) or your own Apple
-   ID or Google account; a new account goes through a short setup (name,
-   home course and handicap, then notifications). A new email account
-   is confirmed with a 6-digit code sent by email, and "Forgot
-   password?" on the login screen resets a password the same way.
-   Deleting an account that signed in with Apple asks Apple to confirm
-   once more and revokes the app's Sign in with Apple access.
-8. Location permission: tapping "Use my location" on the Discover or
-   Courses tabs triggers the standard iOS "While Using the App"
-   prompt. Once allowed, the app checks location each time it's opened
-   or brought back to the foreground — never in the background — to
-   sort rounds by distance and find nearby courses. Coordinates are
-   not stored.
-9. Paid events (Events tab): these are in-person golf events at a real
-   course. Payment is for attending the event in person, so per App
-   Store Review Guideline 3.1.3(e) it uses an outside payment provider
-   (ONVO Pay, Costa Rica, cards and SINPE Móvil) on ONVO's hosted page,
-   not In-App Purchase. No digital content or app features are sold.
-   To try it: signed in as "Foursome Demo", open the Events tab and tap
-   "Foursome Demo Tournament" (a demo event about a week away that only
-   the demo accounts see). Tap "Pay ₡5,000 to join". The demo accounts
-   always pay in ONVO's test mode, so nothing is charged: on ONVO's page
-   use the test card 4242 4242 4242 4242 with any future expiry date,
-   any CVV and any name (or, for SINPE Móvil, the test number
-   8888 8888). Close the page; within a few seconds the event shows
-   "You're in". To see a refund, tap "Can't make it? Cancel for a full
-   refund" on the same event.
-   Refunds: full refund if the player cancels before the event's
-   cutoff, or if we cancel the event. Card payments are refunded
-   automatically through ONVO; SINPE Móvil payments can't be refunded
-   through ONVO, so the organizer sends them by hand to the number the
-   player confirms in the app, within 3 business days.
+PAID EVENTS (Events tab)
+These are in-person golf events at real courses, so per Guideline 3.1.3(e) payment uses an outside provider (ONVO Pay, Costa Rica: cards and SINPE Movil) on ONVO's own page, not In-App Purchase. No digital content or app features are sold.
+To try it: open "Foursome Demo Tournament" (a demo event only the demo accounts see) and tap "Pay ₡5,000 to join". The demo accounts always pay in ONVO's test mode, so nothing is charged. Use card 4242 4242 4242 4242, any future expiry, any CVV and any name (or SINPE Movil test number 8888 8888). Close the page; within a few seconds the event shows "You're in". "Can't make it? Cancel for a full refund" shows the refund.
+Refunds: full refund if the player cancels before the event's cutoff, or if the event is cancelled. Cards are refunded through ONVO automatically; SINPE Movil refunds are sent by hand to the number the player confirms, within 3 business days.
 
-Foursome is an app only; https://foursomecr.com is its landing page.
-The app is available in Costa Rica only. Privacy Policy,
-Terms of Service, Refund Policy, Support (contact:
-foursomeapp.golf@gmail.com) and how to delete an account are at
-https://foursomecr.com/privacy, https://foursomecr.com/terms,
-https://foursomecr.com/refund, https://foursomecr.com/support and
-https://foursomecr.com/delete-account.
+SIGN-IN
+Sign in with Apple (shown first), Sign in with Google, email and password, or guest mode. A new account is confirmed with a 6-digit emailed code, and "Forgot password?" works the same way. Deleting an account that used Sign in with Apple also revokes the app's Apple access.
+
+LOCATION
+"Use my location" on Discover or Courses shows the standard "While Using the App" prompt. Location is checked only while the app is open, to sort by distance and find nearby courses. Coordinates are never stored.
+
+AGE
+Players must be 18 or older (Terms of Service); the app is rated 18+.
+
+Landing page: https://foursomecr.com. Privacy: https://foursomecr.com/privacy. Terms: https://foursomecr.com/terms. Refunds: https://foursomecr.com/refund. Support: https://foursomecr.com/support (foursomeapp.golf@gmail.com). Account deletion: https://foursomecr.com/delete-account.
 ```
